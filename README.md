@@ -60,27 +60,30 @@ Tag, Length, Value):
 - 0-length bytes: Content. Tag specific data
 
 This system allows any reader to scan through the data to find tags that it understands and skip over unknown
-tags
+tags. Numeric values are always stored in big endian format (most significant byte first). Because the length
+field specifies how long the value stored is, any length integer can be stored. For example, the value 128 can
+be stored using a length of 1, but the value 2000 can be stored using 2 bytes (stored as 0x07, 0xd0).
+
+Timestamps are encoded using UTC "unix" time in seconds, unless otherwise specified. This should be a 64-bit (8 byte)
+value.
 
 ### Tags
 
-#### Tag 0
+#### Tag 0x00
 
 This is a special tag which will always have a langth of zero meaning there are no more tags.
 
-#### Tag 1
+#### Tag 0x01
 
 This tag stores the ConCat ID (attendee ID)
 
-Length: variable
-
 Content: This content will follow the same TLV format, but with the following tags are defined:
 
-- Tag 0: Not valid
-- Tag 1: UserID
-- Tag 2: ConventionID
+- Tag 0x00: Not valid
+- Tag 0x01: UserID (int)
+- Tag 0x02: ConventionID (int)
 
-#### Tag 2
+#### Tag 0x02
 
 This tag should be the last tag stored and will serve as the signature tag. It will contain an SHA256 ECDSA signature of all
 TLVs present before this tag. In the event more than one of these tags is present, the signature will include all the
@@ -95,3 +98,18 @@ Create public key: `openssl ec -in ec-secp256k1-priv-key.pem -pubout > ec-secp25
 Create signature using private key: `openssl dgst -sha256 -sign ec-secp256k1-priv-key.pem data-file > signature.bin`
 
 Verify signature using public key: `openssl dgst -sha256 -verify ec-secp256k1-pub-key.pem -signature signature.bin data-file`
+
+#### Tag 0x03
+
+Tag issuance count. Starts at zero. In the case a tag is re-issued, the previous UID in concat will be removed from the
+attendee's account and the new UID updated, effectively making the old tag unusable (since a reader won't find the
+password for the old UID anymore)
+
+#### Tag 0x04
+
+Tag encoding timestamp. This is the time this tag was last written. If any part of the tag is updated, this field
+should be updated as well.
+
+#### Tag 0x05
+
+Tag expiry timestamp. This tag should be considered invalid after this time.

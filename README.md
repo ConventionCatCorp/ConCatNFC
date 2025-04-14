@@ -1,5 +1,24 @@
 # ConCatNFC
 
+This repo implements NFC support for ConCat
+
+## Repo layout
+
+The following directories make up the root of this repo
+
+### ConcatNFCRegProxy
+
+This is the software component that is designed to run on devices where registration staff is printing badges, and where
+NFC tags will be programmed. This will be done with an attached USB NFC interface. ConCat registration is driven entirely from a web browser, so this software runs
+on these same machines and listens on localhost to accept requests from the local browser that ConCat initiates via
+Javascript. The details on how this software works and the APIs is exposed is documented in the README.md of this
+directory. There are implementations for ChromeOS, MacOS, Windows and Linux.
+
+### ConcatNFCValidator
+
+This is the software designed to run on a mobile phone with a built-in NFC interface. It will be able to validate
+attendee's NFC badges to check they are valid. Right now, there is only an implementation for Android.
+
 ## Theory of operation
 
 ConCat NFC tags use NXP NTAG 21x tags. The datasheet for these tags can be found here: [NTAG213/215/216](https://www.nxp.com/docs/en/data-sheet/NTAG213_215_216.pdf)

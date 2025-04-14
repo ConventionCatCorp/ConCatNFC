@@ -22,6 +22,13 @@ For verification, the app first reads the tag's UID. It then checks in Concat to
 with that UID, and if so, attempts to auth to the card with PWD_AUTH with the stored 32-bit value programmed
 at registration. If that is successful the validator then loads the memory content from the tag
 
+This method has the vulnerability that if someone monitors the NFC traffic between a valid reader and valid card
+(or monitors the registration programming) they will obtain the 32 bit value for that card and be able to
+make another one with the same parameters. This will not enable them to impersonate anyone other than the
+badge they monitored. Care should be taken by staff operating validators and registration terminals to prevent
+people from monitoring NFC traffic between readers and tags. This system is only designed to stop casual cloning
+of these NFC tags.
+
 ## Data stored on card
 
 Data will be stored on the card starting at page 6. The data format will follow this convention (known as TLV - 

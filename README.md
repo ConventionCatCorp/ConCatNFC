@@ -59,6 +59,7 @@ Content: This content will follow the same TLV format, but with the following ta
 
 - Tag 0: Not valid
 - Tag 1: UserID
+- Tag 2: ConventionID
 
 #### Tag 2
 

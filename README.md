@@ -22,6 +22,8 @@ For verification, the app first reads the tag's UID. It then checks in Concat to
 with that UID, and if so, attempts to auth to the card with PWD_AUTH with the stored 32-bit value programmed
 at registration. If that is successful the validator then loads the memory content from the tag
 
+## Attack vectors
+
 This method has the vulnerability that if someone monitors the NFC traffic between a valid reader and valid card
 (or monitors the registration programming) they will obtain the 32 bit value for that card and be able to
 make another one with the same parameters. This will not enable them to impersonate anyone other than the
@@ -49,7 +51,7 @@ This is a special tag which will always have a langth of zero meaning there are 
 
 #### Tag 1
 
-This tag stores the ConCat ID (attendee ID) along with a signature
+This tag stores the ConCat ID (attendee ID)
 
 Length: variable
 

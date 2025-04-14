@@ -1,0 +1,11 @@
+{
+  "manifest_version": 2,
+  "name": "Hello World PC/SC",
+  "version": "1.0",
+  "minimum_chrome_version": "23",
+  "app": {
+    "background": {
+      "scripts": ["main.js"]
+    }
+  }
+}

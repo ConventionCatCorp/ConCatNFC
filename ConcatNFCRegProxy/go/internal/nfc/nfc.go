@@ -43,7 +43,7 @@ func (env *NFCEnvoriment) IsReady() bool {
 	valid, err := env.context.IsValid()
 	if !valid {
 		fmt.Printf("Lost connection to the scard %s", err.Error())
-		env.ready = false
+		env.Unready()
 	}
 	return env.ready
 }
@@ -91,7 +91,7 @@ func (env *NFCEnvoriment) lookForDevicesRoutine() {
 }
 
 func (env *NFCEnvoriment) Unready() {
-
+	env.ready = false
 }
 
 func (env *NFCEnvoriment) waitUntilCardPresent(maxWaitTime time.Duration) (int, error) {

@@ -80,8 +80,8 @@ This tag stores the ConCat ID (attendee ID)
 Content: This content will follow the same TLV format, but with the following tags are defined:
 
 - Tag 0x00: Not valid
-- Tag 0x01: UserID (int)
-- Tag 0x02: ConventionID (int)
+- Tag 0x01: UserID (uint)
+- Tag 0x02: ConventionID (uint)
 
 #### Tag 0x02
 
@@ -101,7 +101,7 @@ Verify signature using public key: `openssl dgst -sha256 -verify ec-secp256k1-pu
 
 #### Tag 0x03
 
-Tag issuance count. Starts at zero. In the case a tag is re-issued, the previous UID in concat will be removed from the
+Tag issuance count. Unsigned int. Starts at zero. In the case a tag is re-issued, the previous UID in concat will be removed from the
 attendee's account and the new UID updated, effectively making the old tag unusable (since a reader won't find the
 password for the old UID anymore)
 

@@ -1,0 +1,67 @@
+openapi: 3.0.3
+info:
+  title: Concat NFC proxy
+  description: Proxy to interact with an acr122u nfc reader and provide basic operations trough rest calls... idk wip
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:7070
+
+paths:
+  /healthcheck:
+    get:
+      summary: Check if the proxy is ready to do operations and if the reader is connected and ready
+      operationId: healthcheck
+      responses:
+        '200':
+          description: Is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ready:
+                    type: boolean
+                    example: true
+        '500':
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ready:
+                    type: boolean
+                    example: false
+
+  /uuid:
+    get:
+      summary: Reads the UUID of an nfc card. This operations times out in 20 seconds.
+      responses:
+        '200':
+          description: Found the UUID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseSuccess'
+        '500':
+          description: Error retrieving UUID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseError'
+
+components:
+  schemas:
+    ResponseSuccess:
+      type: object
+      properties:
+        uuid:
+          type: string
+          example: 	"04 41 2a 01 4b 34 03"
+    ResponseError:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "Card ATR is too short or some wierd error here~"

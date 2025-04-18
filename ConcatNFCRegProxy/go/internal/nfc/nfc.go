@@ -319,6 +319,7 @@ func (env *NFCEnvoriment) SetNTAG21xPassword(password uint32) error {
 	}
 	return nil
 }
+
 func (env *NFCEnvoriment) readPage(pageNumber byte) ([]byte, error) {
 	var opread []byte
 	opread = append(opread, OPERATION_READ...)

@@ -2,8 +2,10 @@ package nfc
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,7 +14,6 @@ import (
 
 // Opcodes can be found in API-ACR122U-2.04.pdf
 var OPERATION_GET_SUPPORTED_CARD_SIGNATURE = []byte{0x3B, 0x8F, 0x80, 0x1, 0x80, 0x4F, 0xC, 0xA0, 0x0, 0x0, 0x3, 0x6, 0x3, 0x0, 0x3}
-var OPERATION_GET_CARD_VERSION = []byte{0xff, 0x00, 0x00, 0x00, 0x3, 0xd4, 0x42, 0x60}
 var SUPPORTED_CARD = []byte{0x00, 0x04, 0x04, 0x02, 0x01, 0x00}
 
 type NFCEnvoriment struct {
@@ -20,6 +21,13 @@ type NFCEnvoriment struct {
 	ready   bool
 	Mtx     sync.Mutex
 	readers []string
+	version []byte
+}
+
+type CardInfo struct {
+	Manufacturer string
+	ProductName  string
+	Memory       int
 }
 
 func BeginNfc() *NFCEnvoriment {
@@ -143,6 +151,47 @@ func (env *NFCEnvoriment) transmitAndValidate(card *scard.Card, message []byte) 
 	return true, rsp[0 : len(rsp)-2], nil
 }
 
+func (env *NFCEnvoriment) readData(card *scard.Card, offset byte, length byte) ([]byte, error) {
+	success, body, err := env.transmitAndValidate(card, []byte{0xFF, 0xB0, 0x00, offset, length})
+	if err != nil {
+		return nil, err
+	}
+	if !success {
+		return nil, fmt.Errorf("unknown failure")
+	}
+	return body, nil
+}
+
+func (env *NFCEnvoriment) writeData(card *scard.Card, offset byte, data []byte) error {
+	dataLen := len(data)
+	if dataLen > 0xFF {
+		return fmt.Errorf("Data too long")
+	}
+	dataToSend := []byte{0xFF, 0xd6, 0x00, offset, byte(dataLen)}
+	dataToSend = append(dataToSend, data...)
+	card.BeginTransaction()
+	defer card.EndTransaction(scard.LeaveCard)
+	success, _, err := env.transmitAndValidate(card, dataToSend)
+	if err != nil {
+		return err
+	}
+	if !success {
+		return fmt.Errorf("unknown failure")
+	}
+	return nil
+}
+
+func (env *NFCEnvoriment) transmitVendorCommand(card *scard.Card, vendorCommand []byte) (bool, []byte, error) {
+	length := 2 + len(vendorCommand)
+	if length > 0xff {
+		return false, []byte{}, fmt.Errorf("Vendor command is too large (%d)", length)
+	}
+	var command []byte
+	command = append(command, []byte{0xff, 0x00, 0x00, 0x00, byte(length), 0xd4, 0x42}...)
+	command = append(command, vendorCommand...)
+	return env.transmitAndValidate(card, command)
+}
+
 func (env *NFCEnvoriment) connectAndValidateCard(index int) (*scard.Card, error) {
 	card, err := env.context.Connect(env.readers[index], scard.ShareShared, scard.ProtocolAny)
 	if err != nil {
@@ -167,20 +216,21 @@ func (env *NFCEnvoriment) connectAndValidateCard(index int) (*scard.Card, error)
 		return nil, fmt.Errorf("Operation failed to complete. Error code % x\n", rspCodeBytes)
 	}
 
-	success, body, err := env.transmitAndValidate(card, OPERATION_GET_CARD_VERSION)
+	success, version, err := env.transmitVendorCommand(card, []byte{0x60})
 	if err != nil {
 		return nil, err
 	}
+	env.version = version[3:]
 
 	if !success {
 		return nil, fmt.Errorf("Operation failed")
 	}
-	if len(body) < 11 {
+	if len(version) < 11 {
 		card.Disconnect(scard.ResetCard)
 		return nil, fmt.Errorf("Got short response from GET_VERISON")
 	}
 
-	if !bytes.Equal(body[3:9], SUPPORTED_CARD) {
+	if !bytes.Equal(version[3:9], SUPPORTED_CARD) {
 		card.Disconnect(scard.ResetCard)
 		return nil, fmt.Errorf("Unsupported card: % x\n", rspCodeBytes)
 	}
@@ -188,16 +238,23 @@ func (env *NFCEnvoriment) connectAndValidateCard(index int) (*scard.Card, error)
 	return card, nil
 }
 
-func (env *NFCEnvoriment) GetUUID() (string, error) {
-
+func (env *NFCEnvoriment) connectToFirstCard() (*scard.Card, error) {
 	index, err := env.waitUntilCardPresent(time.Second * 20)
 	if err != nil {
 		fmt.Printf("Failed to get card information: %s\n", err.Error())
 		env.Unready()
-		return "", err
+		return nil, err
 	}
 
 	card, err := env.connectAndValidateCard(index)
+	if err != nil {
+		return nil, err
+	}
+	return card, nil
+}
+
+func (env *NFCEnvoriment) GetUUID() (string, error) {
+	card, err := env.connectToFirstCard()
 	if err != nil {
 		return "", err
 	}
@@ -213,4 +270,93 @@ func (env *NFCEnvoriment) GetUUID() (string, error) {
 	}
 
 	return fmt.Sprintf("% x", body), nil
+}
+
+func (env *NFCEnvoriment) GetCardInfo() (ci *CardInfo, err error) {
+	card, err := env.connectToFirstCard()
+	if err != nil {
+		return nil, err
+	}
+	defer card.Disconnect(scard.ResetCard)
+	ci = new(CardInfo)
+
+	switch env.version[1] {
+	case 0x04: // NXP
+		ci.Manufacturer = "NXP Semiconductors"
+		switch env.version[2] {
+		case 0x04: // NTAG
+			switch env.version[3] {
+			case 0x02: // 50 pF
+				switch env.version[4] {
+				case 0x01:
+					switch env.version[5] {
+					case 0x00: // V0 - NTAG21x
+						switch env.version[6] {
+						case 0x0f: // NTAG213
+							ci.Memory = 144
+							ci.ProductName = "NTAG213"
+						case 0x11: // NTAG215
+							ci.Memory = 504
+							ci.ProductName = "NTAG215"
+						case 0x13: // NTAG216
+							ci.Memory = 888
+							ci.ProductName = "NTAG216"
+						default:
+							return nil, fmt.Errorf("Unsupported card")
+						}
+					default:
+						return nil, fmt.Errorf("Unsupported card")
+					}
+				default:
+					return nil, fmt.Errorf("Unsupported card")
+				}
+			default:
+				return nil, fmt.Errorf("Unsupported card")
+			}
+		default:
+			return nil, fmt.Errorf("Unsupported card")
+		}
+	default:
+		return nil, fmt.Errorf("Unsupported card")
+	}
+	return ci, nil
+}
+
+func (env *NFCEnvoriment) SetNTAG21xPassword(password uint32) error {
+	card, err := env.connectToFirstCard()
+	if err != nil {
+		return err
+	}
+	defer card.Disconnect(scard.ResetCard)
+
+	ci, err := env.GetCardInfo()
+	if err != nil {
+		return err
+	}
+	if !strings.HasPrefix(ci.Manufacturer, "NXP") || !strings.HasPrefix(ci.ProductName, "NTAG21") {
+		return fmt.Errorf("Only NXP NTAG21x supports password")
+	}
+	data, err := env.readData(card, 0xa, 4)
+	fmt.Printf("data: %v", data)
+	err = env.writeData(card, 0xb, []byte{0x11, 0x22, 0x33, 0x44})
+	if err != nil {
+		fmt.Printf("error: %s", err)
+	}
+
+	passwordBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(passwordBytes, password)
+	switch ci.ProductName {
+	case "NTAG213":
+		err = env.writeData(card, 0x2b, passwordBytes)
+	case "NTAG215":
+		err = env.writeData(card, 0x85, passwordBytes)
+	case "NTAG216":
+		err = env.writeData(card, 0xe5, passwordBytes)
+	default:
+		return fmt.Errorf("Unsupported %s", ci.ProductName)
+	}
+	if err != nil {
+		return err
+	}
+	return nil
 }

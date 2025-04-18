@@ -9,19 +9,30 @@ import (
 	"sync"
 	"time"
 
+	"ConcatNFCRegProxy/types"
+
 	"github.com/ebfe/scard"
 )
 
+var STARTING_REGION byte = 0x10
+var PAGE_SIZE byte = 0x04
+
 // Opcodes can be found in API-ACR122U-2.04.pdf
 var OPERATION_GET_SUPPORTED_CARD_SIGNATURE = []byte{0x3B, 0x8F, 0x80, 0x1, 0x80, 0x4F, 0xC, 0xA0, 0x0, 0x0, 0x3, 0x6, 0x3, 0x0, 0x3}
+var OPERATION_GET_CARD_VERSION = []byte{0xff, 0x00, 0x00, 0x00, 0x3, 0xd4, 0x42, 0x60}
 var SUPPORTED_CARD = []byte{0x00, 0x04, 0x04, 0x02, 0x01, 0x00}
+var OPERATION_READ = []byte{0xFF, 0xB0, 0x00, 0x00, PAGE_SIZE}
+var OPERATION_WRITE = []byte{0xFF, 0xD6, 0x00, 0x00, PAGE_SIZE}
 
 type NFCEnvoriment struct {
-	context *scard.Context
-	ready   bool
-	Mtx     sync.Mutex
-	readers []string
-	version []byte
+	context        *scard.Context
+	ready          bool
+	Mtx            sync.Mutex
+	readers        []string
+	version        []byte
+	cardConnection *scard.Card
+	buffer         []byte
+	currentPage    byte
 }
 
 type CardInfo struct {
@@ -238,8 +249,9 @@ func (env *NFCEnvoriment) connectAndValidateCard(index int) (*scard.Card, error)
 	return card, nil
 }
 
-func (env *NFCEnvoriment) connectToFirstCard() (*scard.Card, error) {
-	index, err := env.waitUntilCardPresent(time.Second * 20)
+func (env *NFCEnvoriment) GetUUID() (string, error) {
+
+	err := env.startConnection()
 	if err != nil {
 		fmt.Printf("Failed to get card information: %s\n", err.Error())
 		env.Unready()
@@ -258,9 +270,9 @@ func (env *NFCEnvoriment) GetUUID() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer card.Disconnect(scard.ResetCard)
+	defer env.endConnection()
 
-	success, body, err := env.transmitAndValidate(card, []byte{0xFF, 0xCA, 0x00, 0x00, 0x00})
+	success, body, err := env.transmitAndValidate(env.cardConnection, []byte{0xFF, 0xCA, 0x00, 0x00, 0x00})
 	if err != nil {
 		return "", err
 	}
@@ -269,7 +281,7 @@ func (env *NFCEnvoriment) GetUUID() (string, error) {
 		return "", fmt.Errorf("Operation failed")
 	}
 
-	return fmt.Sprintf("% x", body), nil
+	return fmt.Sprintf("%x", body), nil
 }
 
 func (env *NFCEnvoriment) GetCardInfo() (ci *CardInfo, err error) {
@@ -331,6 +343,8 @@ func (env *NFCEnvoriment) SetNTAG21xPassword(password uint32) error {
 
 	ci, err := env.GetCardInfo()
 	if err != nil {
+		fmt.Printf("Failed to get card information: %s\n", err.Error())
+		env.Unready()
 		return err
 	}
 	if !strings.HasPrefix(ci.Manufacturer, "NXP") || !strings.HasPrefix(ci.ProductName, "NTAG21") {
@@ -359,4 +373,195 @@ func (env *NFCEnvoriment) SetNTAG21xPassword(password uint32) error {
 		return err
 	}
 	return nil
+}
+func (env *NFCEnvoriment) readPage(pageNumber byte) ([]byte, error) {
+	var opread []byte
+	opread = append(opread, OPERATION_READ...)
+	opread[3] = pageNumber
+	success, body, err := env.transmitAndValidate(env.cardConnection, opread)
+	if err != nil {
+		return []byte{}, err
+	}
+	if !success {
+		return []byte{}, fmt.Errorf("Operation failed")
+	}
+	return body, nil
+}
+
+func (env *NFCEnvoriment) writePage(pageNumber byte, data []byte) error {
+	if len(data) != int(PAGE_SIZE) {
+		return fmt.Errorf("Page must be %d bytes", PAGE_SIZE)
+	}
+	var opwrite []byte
+	opwrite = append(opwrite, OPERATION_WRITE...)
+	opwrite[3] = pageNumber
+
+	fmt.Printf("[DEBUG] Writing page=%x data=%v\n", pageNumber, data)
+	opwrite = append(opwrite, data...) // Append the data to write
+	success, _, err := env.transmitAndValidate(env.cardConnection, opwrite)
+	if err != nil {
+		return err
+	}
+	if !success {
+		return fmt.Errorf("write operation failed")
+	}
+	return nil
+}
+
+func (env *NFCEnvoriment) endConnection() {
+	if env.cardConnection != nil {
+		fmt.Printf("Reseted card\n")
+		env.cardConnection.Disconnect(scard.ResetCard)
+	}
+	env.cardConnection = nil
+}
+
+func (env *NFCEnvoriment) startConnection() error {
+	index, err := env.waitUntilCardPresent(time.Second * 20)
+	if err != nil {
+		fmt.Printf("Failed to get card information: %s\n", err.Error())
+		env.Unready()
+		return err
+	}
+
+	// Connect to the card
+	card, err := env.connectAndValidateCard(index)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Connected to card\n")
+	env.cardConnection = card
+	env.buffer = []byte{}
+	return nil
+}
+
+func (env *NFCEnvoriment) setPage(page byte) {
+	env.currentPage = page
+}
+
+func (env *NFCEnvoriment) readByte() (byte, error) {
+	if len(env.buffer) == 0 {
+		var err error
+		env.buffer, err = env.readPage(env.currentPage)
+		if err != nil {
+			return 0x00, err
+		}
+		if len(env.buffer) > int(PAGE_SIZE) {
+			env.buffer = env.buffer[:PAGE_SIZE]
+		}
+		fmt.Printf("[DEBUG] page read 0x%x data=%v\n", env.currentPage, env.buffer)
+		env.currentPage++
+	}
+	readElement := env.buffer[0]
+	env.buffer = env.buffer[1:]
+	return readElement, nil
+}
+
+func (env *NFCEnvoriment) checkAndTransmit(accumulatedBytes []byte) ([]byte, bool, error) {
+	if len(accumulatedBytes) != int(PAGE_SIZE) {
+		return accumulatedBytes, false, nil
+	}
+	err := env.writePage(env.currentPage, accumulatedBytes)
+	if err != nil {
+		return []byte{}, false, err
+	}
+	env.currentPage++
+	return []byte{}, true, err
+}
+
+func (env *NFCEnvoriment) WriteTags(tags []types.Tag) error {
+	err := env.startConnection()
+	if err != nil {
+		return err
+	}
+	defer env.endConnection()
+	env.setPage(STARTING_REGION)
+	env.cardConnection.BeginTransaction()
+	//Transmissions must be done in blocks of 16, so here we make sure we're transmitting 16 bytes at the time
+	var accumulatedBytes []byte
+	for _, tag := range tags {
+		fmt.Printf("[DEBUG] Writing tag 0x%x\n", tag.Id)
+		accumulatedBytes = append(accumulatedBytes, tag.Id)
+		accumulatedBytes, _, err = env.checkAndTransmit(accumulatedBytes)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("[DEBUG] Writing tag lenght=%d\n", byte(len(tag.Data)))
+		accumulatedBytes = append(accumulatedBytes, byte(len(tag.Data)))
+		accumulatedBytes, _, err = env.checkAndTransmit(accumulatedBytes)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("[DEBUG] Writing data=%v\n", byte(len(tag.Data)))
+		for _, dataByte := range tag.Data {
+			accumulatedBytes = append(accumulatedBytes, dataByte)
+			accumulatedBytes, _, err = env.checkAndTransmit(accumulatedBytes)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	//If some bytes are remaining in the array, we need to transmit a total of 16 bytes, so we fill it with zeros
+	if len(accumulatedBytes) > 0 {
+		var transmitted bool
+		for {
+			accumulatedBytes = append(accumulatedBytes, 0x00)
+			accumulatedBytes, transmitted, err = env.checkAndTransmit(accumulatedBytes)
+			if err != nil {
+				return err
+			}
+			if transmitted {
+				break
+			}
+		}
+	}
+
+	return env.cardConnection.EndTransaction(0)
+}
+
+func (env *NFCEnvoriment) ReadTags() ([]types.Tag, error) {
+
+	var tags []types.Tag
+	err := env.startConnection()
+	if err != nil {
+		return tags, err
+	}
+
+	defer env.endConnection()
+	var tagId byte
+	var tagLenght byte
+	var readByte byte
+	env.setPage(STARTING_REGION)
+	for {
+		tagId, err = env.readByte()
+		if err != nil {
+			return tags, err
+		}
+		if tagId == 0x00 {
+			return tags, nil
+		}
+		fmt.Printf("[DEBUG] Found tag 0x%x\n", tagId)
+		tagLenght, err = env.readByte()
+		if err != nil {
+			return tags, err
+		}
+		fmt.Printf("[DEBUG] Tag lenght is %d\n", int(tagLenght))
+		if tagLenght == 0x00 {
+			return tags, fmt.Errorf("Tag lenght is zero. Probally corrupt data")
+		}
+		var tagBytes []byte
+		for i := 0; i < int(tagLenght); i++ {
+			readByte, err = env.readByte()
+			if err != nil {
+				return tags, err
+			}
+			tagBytes = append(tagBytes, readByte)
+		}
+		fmt.Printf("[DEBUG] Tag data is %v\n", tagBytes)
+		tags = append(tags, types.Tag{
+			Id:   tagId,
+			Data: tagBytes,
+		})
+
+	}
 }

@@ -33,7 +33,6 @@ func (h *HandlerContext) waitForCardReady(c *gin.Context) bool {
 	env := h.env
 
 	env.Mtx.Lock()
-	defer env.Mtx.Unlock()
 
 	var response types.Response
 

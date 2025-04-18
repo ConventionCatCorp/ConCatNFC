@@ -31,6 +31,7 @@ func (h *HandlerContext) waitForCardReady(c *gin.Context) bool {
 	env := h.env
 
 	env.Mtx.Lock()
+	defer env.Mtx.Unlock()
 
 	var response types.Response
 
@@ -45,7 +46,6 @@ func (h *HandlerContext) waitForCardReady(c *gin.Context) bool {
 func (h *HandlerContext) getUUID(c *gin.Context) {
 	env := h.env
 	success := h.waitForCardReady(c)
-	defer env.Mtx.Unlock()
 	if !success {
 		return
 	}

@@ -240,49 +240,55 @@ func (env *NFCEnvoriment) GetUUID() (string, error) {
 	return fmt.Sprintf("%x", body), nil
 }
 
-func (env *NFCEnvoriment) getCardInfo() (ci *CardInfo, err error) {
-	ci = new(CardInfo)
+func (env *NFCEnvoriment) parseNtagVersion(ver byte, ci *CardInfo) (*CardInfo, error) {
+	switch ver {
+	case 0x0f:
+		ci.Memory = 144
+		ci.ProductName = "NTAG213"
+	case 0x11:
+		ci.Memory = 504
+		ci.ProductName = "NTAG215"
+	case 0x13:
+		ci.Memory = 888
+		ci.ProductName = "NTAG216"
+	default:
+		return nil, fmt.Errorf("Unsupported card")
+	}
+	return ci, nil
+}
 
-	switch env.version[1] {
-	case 0x04: // NXP
+func (env *NFCEnvoriment) getCardInfo() (*CardInfo, error) {
+	ci := new(CardInfo)
+	if len(env.version) < 6 {
+		return nil, fmt.Errorf("Unsupported card")
+	}
+	switch env.version[1] { // NXP
+	case 0x04:
 		ci.Manufacturer = "NXP Semiconductors"
-		switch env.version[2] {
-		case 0x04: // NTAG
-			switch env.version[3] {
-			case 0x02: // 50 pF
-				switch env.version[4] {
-				case 0x01:
-					switch env.version[5] {
-					case 0x00: // V0 - NTAG21x
-						switch env.version[6] {
-						case 0x0f: // NTAG213
-							ci.Memory = 144
-							ci.ProductName = "NTAG213"
-						case 0x11: // NTAG215
-							ci.Memory = 504
-							ci.ProductName = "NTAG215"
-						case 0x13: // NTAG216
-							ci.Memory = 888
-							ci.ProductName = "NTAG216"
-						default:
-							return nil, fmt.Errorf("Unsupported card")
-						}
-					default:
-						return nil, fmt.Errorf("Unsupported card")
-					}
-				default:
-					return nil, fmt.Errorf("Unsupported card")
-				}
-			default:
-				return nil, fmt.Errorf("Unsupported card")
+		break
+	default:
+		return nil, fmt.Errorf("Unsupported card")
+	}
+
+	if env.version[2] != 0x04 && env.version[3] != 0x02 && env.version[4] != 0x01 {
+		return nil, fmt.Errorf("Unsupported card")
+	}
+
+	switch env.version[5] {
+	case 0x00:
+		{
+			var err error
+			ci, err = env.parseNtagVersion(env.version[6], ci)
+			if err != nil {
+				return nil, err
 			}
-		default:
-			return nil, fmt.Errorf("Unsupported card")
+			break
 		}
 	default:
 		return nil, fmt.Errorf("Unsupported card")
 	}
 	return ci, nil
+
 }
 
 func (env *NFCEnvoriment) SetNTAG21xPassword(password uint32) error {

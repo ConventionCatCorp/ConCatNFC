@@ -28,7 +28,7 @@ func (h *HandlerContext) healthcheck(c *gin.Context) {
 	}
 }
 
-// NOTE: This function has h.env.Mtx held on return
+// NOTE: This function has h.env.Mtx held on return. Call releaseCard when done.
 func (h *HandlerContext) waitForCardReady(c *gin.Context) bool {
 	env := h.env
 
@@ -44,10 +44,14 @@ func (h *HandlerContext) waitForCardReady(c *gin.Context) bool {
 	return true
 }
 
+func (h *HandlerContext) releaseCard() {
+	h.env.Mtx.Unlock()
+}
+
 func (h *HandlerContext) getUUID(c *gin.Context) {
 	env := h.env
 	success := h.waitForCardReady(c)
-	defer env.Mtx.Unlock()
+	defer h.releaseCard()
 	if !success {
 		return
 	}
@@ -84,7 +88,7 @@ func (h *HandlerContext) setPassword(c *gin.Context) {
 
 	env := h.env
 	success := h.waitForCardReady(c)
-	defer env.Mtx.Unlock()
+	defer h.releaseCard()
 	if !success {
 		return
 	}

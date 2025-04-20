@@ -161,6 +161,7 @@ func (env *NFCEnvoriment) transmitAndValidate(card *scard.Card, message []byte) 
 	return true, rsp[0 : len(rsp)-2], nil
 }
 
+// transmitVendorCommand implements inCommunicateThru command according to NXP App note 157830_PN533 section 8.4.9
 func (env *NFCEnvoriment) transmitVendorCommand(card *scard.Card, vendorCommand []byte) (bool, []byte, error) {
 	length := 2 + len(vendorCommand)
 	if length > 0xff {
@@ -169,7 +170,20 @@ func (env *NFCEnvoriment) transmitVendorCommand(card *scard.Card, vendorCommand 
 	var command []byte
 	command = append(command, []byte{0xff, 0x00, 0x00, 0x00, byte(length), 0xd4, 0x42}...)
 	command = append(command, vendorCommand...)
-	return env.transmitAndValidate(card, command)
+	success, resp, err := env.transmitAndValidate(card, command)
+	if err != nil {
+		return false, []byte{}, err
+	}
+	if !success {
+		return success, resp, err
+	}
+	if len(resp) < 3 {
+		return false, []byte{}, fmt.Errorf("response too short")
+	}
+	if resp[0] != 0xd5 || resp[1] != 0x43 {
+		return false, []byte{}, fmt.Errorf("Unexpected response from Vendor command. got % x", resp[0:2])
+	}
+	return success, resp[2:], err
 }
 
 func (env *NFCEnvoriment) connectAndValidateCard(index int) (*scard.Card, error) {
@@ -200,17 +214,20 @@ func (env *NFCEnvoriment) connectAndValidateCard(index int) (*scard.Card, error)
 	if err != nil {
 		return nil, err
 	}
-	env.version = version[3:]
+	if version[0] != 0x0 {
+		return nil, fmt.Errorf("Vendor command failed with error code %x\n", version[0])
+	}
+	env.version = version[1:]
 
 	if !success {
 		return nil, fmt.Errorf("Operation failed")
 	}
-	if len(version) < 11 {
+	if len(version) < 9 {
 		card.Disconnect(scard.ResetCard)
 		return nil, fmt.Errorf("Got short response from GET_VERISON")
 	}
 
-	if !bytes.Equal(version[3:9], SUPPORTED_CARD) {
+	if !bytes.Equal(version[1:7], SUPPORTED_CARD) {
 		card.Disconnect(scard.ResetCard)
 		return nil, fmt.Errorf("Unsupported card: % x\n", rspCodeBytes)
 	}
@@ -219,15 +236,6 @@ func (env *NFCEnvoriment) connectAndValidateCard(index int) (*scard.Card, error)
 }
 
 func (env *NFCEnvoriment) GetUUID() (string, error) {
-
-	err := env.startConnection()
-	if err != nil {
-		fmt.Printf("Failed to get card information: %s\n", err.Error())
-		env.Unready()
-		return "", err
-	}
-	defer env.endConnection()
-
 	success, body, err := env.transmitAndValidate(env.cardConnection, []byte{0xFF, 0xCA, 0x00, 0x00, 0x00})
 	if err != nil {
 		return "", err
@@ -292,12 +300,6 @@ func (env *NFCEnvoriment) getCardInfo() (*CardInfo, error) {
 }
 
 func (env *NFCEnvoriment) SetNTAG21xPassword(password uint32) error {
-	err := env.startConnection()
-	if err != nil {
-		return err
-	}
-	defer env.endConnection()
-
 	ci, err := env.getCardInfo()
 	if err != nil {
 		fmt.Printf("Failed to get card information: %s\n", err.Error())
@@ -310,20 +312,91 @@ func (env *NFCEnvoriment) SetNTAG21xPassword(password uint32) error {
 
 	passwordBytes := make([]byte, 4)
 	binary.BigEndian.PutUint32(passwordBytes, password)
+	var cfgBytes []byte
+	var cfgStartPage byte
 	switch ci.ProductName {
 	case "NTAG213":
-		err = env.writePage(0x2b, passwordBytes)
+
+		{
+			err = env.writePage(0x2b, passwordBytes)
+			cfgStartPage = 0x29
+		}
+
 	case "NTAG215":
-		err = env.writePage(0x85, passwordBytes)
+		{
+			err = env.writePage(0x85, passwordBytes)
+			cfgStartPage = 0x83
+		}
 	case "NTAG216":
-		err = env.writePage(0xe5, passwordBytes)
+		{
+			err = env.writePage(0xe5, passwordBytes)
+			cfgStartPage = 0xe3
+		}
 	default:
-		return fmt.Errorf("Unsupported %s", ci.ProductName)
+		{
+			return fmt.Errorf("Unsupported %s", ci.ProductName)
+		}
 	}
 	if err != nil {
 		return err
 	}
+	env.setPage(cfgStartPage)
+	cfgBytes, err = env.readBytes(16)
+	if err != nil {
+		return err
+	}
+	// Auth to card so we don't lock ourselves out
+	err = env.NTAG21xAuth(password)
+	if err != nil {
+		return err
+	}
+	// Set starting page for protection
+	cfgBytes[3] = STARTING_REGION
+	// Set PROT bit to 1 for read and write protection
+	cfgBytes[4] = cfgStartPage & (0x1 << 7)
+	err = env.writePage(cfgStartPage, cfgBytes[0:4])
+	if err != nil {
+		return err
+	}
+	err = env.writePage(cfgStartPage+4, cfgBytes[4:8])
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("cfg bytes: % x", cfgBytes)
+
 	return nil
+}
+
+// NTAG21xAuth send the PWD_AUTH command to an NXP NTAG21x
+func (env *NFCEnvoriment) NTAG21xAuth(password uint32) error {
+	ci, err := env.getCardInfo()
+	if err != nil {
+		fmt.Printf("Failed to get card information: %s\n", err.Error())
+		env.Unready()
+		return err
+	}
+	if !strings.HasPrefix(ci.Manufacturer, "NXP") || !strings.HasPrefix(ci.ProductName, "NTAG21") {
+		return fmt.Errorf("Only NXP NTAG21x supports password")
+	}
+	payload := []byte{0x1b}
+	payload = binary.BigEndian.AppendUint32(payload, password)
+	success, response, err := env.transmitVendorCommand(env.cardConnection, payload)
+	if err != nil {
+		return err
+	}
+	if !success {
+		return fmt.Errorf("Operation failed")
+	}
+	if len(response) < 1 {
+		return fmt.Errorf("response too short")
+	}
+	if response[0] != 0 {
+		return fmt.Errorf("Authentication failed")
+	}
+	fmt.Printf("response: % x\n", response)
+	return nil
+
 }
 
 func (env *NFCEnvoriment) readPage(pageNumber byte) ([]byte, error) {
@@ -360,7 +433,7 @@ func (env *NFCEnvoriment) writePage(pageNumber byte, data []byte) error {
 	return nil
 }
 
-func (env *NFCEnvoriment) endConnection() {
+func (env *NFCEnvoriment) EndConnection() {
 	if env.cardConnection != nil {
 		fmt.Printf("Reseted card\n")
 		env.cardConnection.Disconnect(scard.ResetCard)
@@ -368,7 +441,7 @@ func (env *NFCEnvoriment) endConnection() {
 	env.cardConnection = nil
 }
 
-func (env *NFCEnvoriment) startConnection() error {
+func (env *NFCEnvoriment) StartConnection() error {
 	index, err := env.waitUntilCardPresent(time.Second * 20)
 	if err != nil {
 		fmt.Printf("Failed to get card information: %s\n", err.Error())
@@ -409,6 +482,18 @@ func (env *NFCEnvoriment) readByte() (byte, error) {
 	return readElement, nil
 }
 
+func (env *NFCEnvoriment) readBytes(nBytes int) ([]byte, error) {
+	var buf []byte
+	for i := 0; i < nBytes; i++ {
+		b, err := env.readByte()
+		if err != nil {
+			return buf, err
+		}
+		buf = append(buf, b)
+	}
+	return buf, nil
+}
+
 func (env *NFCEnvoriment) checkAndTransmit(accumulatedBytes []byte) ([]byte, bool, error) {
 	if len(accumulatedBytes) != int(PAGE_SIZE) {
 		return accumulatedBytes, false, nil
@@ -422,11 +507,7 @@ func (env *NFCEnvoriment) checkAndTransmit(accumulatedBytes []byte) ([]byte, boo
 }
 
 func (env *NFCEnvoriment) WriteTags(tags []types.Tag) error {
-	err := env.startConnection()
-	if err != nil {
-		return err
-	}
-	defer env.endConnection()
+	var err error
 	env.setPage(STARTING_REGION)
 	env.cardConnection.BeginTransaction()
 	//Transmissions must be done in blocks of 16, so here we make sure we're transmitting 16 bytes at the time
@@ -474,13 +555,8 @@ func (env *NFCEnvoriment) WriteTags(tags []types.Tag) error {
 func (env *NFCEnvoriment) ReadTags() ([]types.Tag, error) {
 
 	var tags []types.Tag
-	err := env.startConnection()
-	if err != nil {
-		return tags, err
-	}
-
-	defer env.endConnection()
 	var tagId byte
+	var err error
 	var tagLenght byte
 	var readByte byte
 	env.setPage(STARTING_REGION)

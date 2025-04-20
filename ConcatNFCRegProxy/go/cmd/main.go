@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"ConcatNFCRegProxy/internal/nfc"
@@ -27,19 +28,35 @@ func (h *HandlerContext) healthcheck(c *gin.Context) {
 	}
 }
 
-func (h *HandlerContext) getUUID(c *gin.Context) {
+// NOTE: This function has h.env.Mtx held on return. Call releaseCard when done.
+func (h *HandlerContext) waitForCardReady(c *gin.Context) bool {
 	env := h.env
 
 	env.Mtx.Lock()
-	defer env.Mtx.Unlock()
 
 	var response types.Response
 
 	if !h.env.IsReady() {
 		response.Error = "Card reader not avalible or not ready"
 		c.JSON(http.StatusInternalServerError, response)
+		return false
+	}
+	return true
+}
+
+func (h *HandlerContext) releaseCard() {
+	h.env.Mtx.Unlock()
+}
+
+func (h *HandlerContext) getUUID(c *gin.Context) {
+	env := h.env
+	success := h.waitForCardReady(c)
+	defer h.releaseCard()
+	if !success {
 		return
 	}
+
+	var response types.Response
 
 	statusCode := http.StatusOK
 	uid, err := env.GetUUID()
@@ -48,6 +65,40 @@ func (h *HandlerContext) getUUID(c *gin.Context) {
 		response.Error = err.Error()
 	}
 	response.UUID = uid
+
+	c.JSON(statusCode, response)
+
+}
+
+func (h *HandlerContext) setPassword(c *gin.Context) {
+	var response types.Response
+	password := c.Query("password")
+	if password == "" {
+		response.Error = "missing password parameter"
+		c.JSON(http.StatusBadRequest, response)
+		return
+	}
+	passwordUint64, err := strconv.ParseUint(password, 0, 32)
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusBadRequest, response)
+		return
+	}
+	passwordUint32 := uint32(passwordUint64)
+
+	env := h.env
+	success := h.waitForCardReady(c)
+	defer h.releaseCard()
+	if !success {
+		return
+	}
+
+	statusCode := http.StatusOK
+	err = env.SetNTAG21xPassword(passwordUint32)
+	if err != nil {
+		statusCode = http.StatusInternalServerError
+		response.Error = err.Error()
+	}
 
 	c.JSON(statusCode, response)
 
@@ -153,6 +204,7 @@ func main() {
 	r.GET("/read/:uuid/all", handler.getAllTags)
 
 	r.GET("/write_tags/test", handler.writeTagsTest)
+	r.GET("/setpassword", handler.setPassword)
 
 	r.Run(":7070")
 

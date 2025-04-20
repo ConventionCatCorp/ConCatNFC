@@ -353,7 +353,7 @@ func (env *NFCEnvoriment) SetNTAG21xPassword(password uint32) error {
 	// Set starting page for protection
 	cfgBytes[3] = STARTING_REGION
 	// Set PROT bit to 1 for read and write protection
-	cfgBytes[4] = cfgStartPage & (0x1 << 7)
+	cfgBytes[4] = cfgBytes[4] | (0x1 << 7)
 	err = env.writePage(cfgStartPage, cfgBytes[0:4])
 	if err != nil {
 		return err

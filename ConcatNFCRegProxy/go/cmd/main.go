@@ -166,40 +166,6 @@ func (h *HandlerContext) clearPassword(c *gin.Context) {
 	c.JSON(statusCode, response)
 }
 
-func (h *HandlerContext) unlockCard(c *gin.Context) {
-	var response types.Response
-	password := c.Query("password")
-	if password == "" {
-		response.Error = "missing password parameter"
-		c.JSON(http.StatusBadRequest, response)
-		return
-	}
-	passwordUint64, err := strconv.ParseUint(password, 0, 32)
-	if err != nil {
-		response.Error = err.Error()
-		c.JSON(http.StatusBadRequest, response)
-		return
-	}
-	passwordUint32 := uint32(passwordUint64)
-
-	env := h.env
-	success := h.waitForCardReady(c)
-	defer h.releaseCard()
-	if !success {
-		return
-	}
-
-	statusCode := http.StatusOK
-	err = env.NTAG21xAuth(passwordUint32)
-	if err != nil {
-		statusCode = http.StatusInternalServerError
-		response.Error = err.Error()
-	}
-
-	c.JSON(statusCode, response)
-
-}
-
 func (h *HandlerContext) writeTagsTest(c *gin.Context) {
 	env := h.env
 
@@ -373,7 +339,6 @@ func main() {
 	r.GET("/write_tags/test", handler.writeTagsTest)
 	r.GET("/setpassword", handler.setPassword)
 	r.GET("/clearpassword", handler.clearPassword)
-	r.GET("/unlockcard", handler.unlockCard)
 
 	r.Run(":7070")
 

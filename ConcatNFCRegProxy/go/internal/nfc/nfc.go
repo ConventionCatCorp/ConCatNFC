@@ -319,12 +319,10 @@ func (env *NFCEnvoriment) SetNTAG21xPassword(password uint32) error {
 	var cfgStartPage byte
 	switch ci.ProductName {
 	case "NTAG213":
-
 		{
 			err = env.writePage(0x2b, passwordBytes)
 			cfgStartPage = 0x29
 		}
-
 	case "NTAG215":
 		{
 			err = env.writePage(0x85, passwordBytes)
@@ -361,7 +359,68 @@ func (env *NFCEnvoriment) SetNTAG21xPassword(password uint32) error {
 	if err != nil {
 		return err
 	}
-	err = env.writePage(cfgStartPage+4, cfgBytes[4:8])
+	err = env.writePage(cfgStartPage+1, cfgBytes[4:8])
+	if err != nil && !env.IsAuthRequired() {
+		return err
+	}
+
+	fmt.Printf("cfg bytes: % x", cfgBytes)
+
+	return nil
+}
+
+func (env *NFCEnvoriment) ClearNTAG21xPassword() error {
+	ci, err := env.getCardInfo()
+	if err != nil {
+		fmt.Printf("Failed to get card information: %s\n", err.Error())
+		env.Unready()
+		return err
+	}
+	if !strings.HasPrefix(ci.Manufacturer, "NXP") || !strings.HasPrefix(ci.ProductName, "NTAG21") {
+		return fmt.Errorf("Only NXP NTAG21x supports password")
+	}
+
+	passwordBytes := []byte{0xff, 0xff, 0xff, 0xff}
+	var cfgBytes []byte
+	var cfgStartPage byte
+	switch ci.ProductName {
+	case "NTAG213":
+		{
+			err = env.writePage(0x2b, passwordBytes)
+			cfgStartPage = 0x29
+		}
+	case "NTAG215":
+		{
+			err = env.writePage(0x85, passwordBytes)
+			cfgStartPage = 0x83
+		}
+	case "NTAG216":
+		{
+			err = env.writePage(0xe5, passwordBytes)
+			cfgStartPage = 0xe3
+		}
+	default:
+		{
+			return fmt.Errorf("Unsupported %s", ci.ProductName)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	env.setPage(cfgStartPage)
+	cfgBytes, err = env.readBytes(16)
+	if err != nil {
+		return err
+	}
+	// Set starting page for protection to 0xff (beyond end of device)
+	cfgBytes[3] = 0xff
+	// Set PROT bit to 0 for read and write protection
+	cfgBytes[4] = cfgBytes[4] & (0x7f)
+	err = env.writePage(cfgStartPage, cfgBytes[0:4])
+	if err != nil {
+		return err
+	}
+	err = env.writePage(cfgStartPage+1, cfgBytes[4:8])
 	if err != nil && !env.IsAuthRequired() {
 		return err
 	}

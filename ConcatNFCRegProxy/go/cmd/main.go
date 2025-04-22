@@ -177,9 +177,33 @@ func (h *HandlerContext) writeTagsTest(c *gin.Context) {
 	}
 	defer env.EndConnection()
 
+	password := c.Query("password")
+	if password != "" {
+		passwordUint64, err := strconv.ParseUint(password, 0, 32)
+		if err != nil {
+			var response types.Response
+			response.Error = err.Error()
+			c.JSON(http.StatusBadRequest, response)
+			return
+		}
+		passwordUint32 := uint32(passwordUint64)
+		err = env.NTAG21xAuth(passwordUint32)
+		if err != nil {
+			var response types.Response
+			response.Error = "Invalid authentication " + err.Error()
+			c.JSON(http.StatusForbidden, response)
+			return
+		}
+		// Continue with your password processing here...
+	}
+
 	err = env.WriteTags(insertTags)
 	if err != nil {
 		var response types.Response
+		if env.IsAuthRequired() {
+			response.Error = "Password required"
+			c.JSON(http.StatusForbidden, response)
+		}
 		response.Error = err.Error()
 		c.JSON(http.StatusInternalServerError, response)
 		return

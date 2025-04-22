@@ -32,6 +32,7 @@ type NFCEnvoriment struct {
 	cardConnection *scard.Card
 	buffer         []byte
 	currentPage    byte
+	lastErrorCode  []byte
 }
 
 type CardInfo struct {
@@ -155,7 +156,9 @@ func (env *NFCEnvoriment) transmitAndValidate(card *scard.Card, message []byte) 
 
 	rspCodeBytes := rsp[len(rsp)-2:]
 	successResponseCode := []byte{0x90, 0x00}
+
 	if !bytes.Equal(rspCodeBytes, successResponseCode) {
+		env.lastErrorCode = rspCodeBytes
 		return false, rsp[0 : len(rsp)-2], fmt.Errorf("Operation failed to complete. Error code % x\n", rspCodeBytes)
 	}
 	return true, rsp[0 : len(rsp)-2], nil
@@ -359,13 +362,21 @@ func (env *NFCEnvoriment) SetNTAG21xPassword(password uint32) error {
 		return err
 	}
 	err = env.writePage(cfgStartPage+4, cfgBytes[4:8])
-	if err != nil {
+	if err != nil && !env.IsAuthRequired() {
 		return err
 	}
 
 	fmt.Printf("cfg bytes: % x", cfgBytes)
 
 	return nil
+}
+
+func (env *NFCEnvoriment) IsAuthRequired() bool {
+	authRequiredStatusCode := []byte{0x63, 0x00}
+	if bytes.Equal(env.lastErrorCode, authRequiredStatusCode) {
+		return true
+	}
+	return false
 }
 
 // NTAG21xAuth send the PWD_AUTH command to an NXP NTAG21x

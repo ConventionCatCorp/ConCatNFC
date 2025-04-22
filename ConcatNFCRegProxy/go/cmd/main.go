@@ -203,6 +203,7 @@ func (h *HandlerContext) writeTagsTest(c *gin.Context) {
 		if env.IsAuthRequired() {
 			response.Error = "Password required"
 			c.JSON(http.StatusForbidden, response)
+			return
 		}
 		response.Error = err.Error()
 		c.JSON(http.StatusInternalServerError, response)

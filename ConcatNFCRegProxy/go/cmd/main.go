@@ -59,6 +59,13 @@ func (h *HandlerContext) getUUID(c *gin.Context) {
 	var response types.Response
 
 	statusCode := http.StatusOK
+	err := env.StartConnection()
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+	defer env.EndConnection()
 	uid, err := env.GetUUID()
 	if err != nil {
 		statusCode = http.StatusInternalServerError
@@ -129,6 +136,15 @@ func (h *HandlerContext) setPassword(c *gin.Context) {
 	}
 
 	statusCode := http.StatusOK
+	err = env.StartConnection()
+	if err != nil {
+		statusCode = http.StatusInternalServerError
+		response.Error = err.Error()
+		c.JSON(statusCode, response)
+		return
+	}
+	defer env.EndConnection()
+
 	err = env.SetNTAG21xPassword(passwordUint32)
 	if err != nil {
 		statusCode = http.StatusInternalServerError
@@ -136,7 +152,53 @@ func (h *HandlerContext) setPassword(c *gin.Context) {
 	}
 
 	c.JSON(statusCode, response)
+}
 
+func (h *HandlerContext) clearPassword(c *gin.Context) {
+	var response types.Response
+	env := h.env
+	success := h.waitForCardReady(c)
+	defer h.releaseCard()
+	if !success {
+		return
+	}
+
+	statusCode := http.StatusOK
+	err := env.StartConnection()
+	if err != nil {
+		statusCode = http.StatusInternalServerError
+		response.Error = err.Error()
+		c.JSON(statusCode, response)
+		return
+	}
+	defer env.EndConnection()
+
+	var passwordUint32 uint32
+	password := c.Query("password")
+	if password != "" {
+		passwordUint64, err := strconv.ParseUint(password, 0, 32)
+		if err != nil {
+			response.Error = err.Error()
+			c.JSON(http.StatusBadRequest, response)
+			return
+		}
+		passwordUint32 = uint32(passwordUint64)
+		err = env.NTAG21xAuth(passwordUint32)
+		if err != nil {
+			statusCode = http.StatusInternalServerError
+			response.Error = err.Error()
+			c.JSON(statusCode, response)
+			return
+		}
+	}
+
+	err = env.ClearNTAG21xPassword()
+	if err != nil {
+		statusCode = http.StatusInternalServerError
+		response.Error = err.Error()
+	}
+
+	c.JSON(statusCode, response)
 }
 
 func (h *HandlerContext) writeTagsTest(c *gin.Context) {
@@ -153,9 +215,43 @@ func (h *HandlerContext) writeTagsTest(c *gin.Context) {
 	insertTags = append(insertTags, tags.NewExpiration(uint64(time.Now().Unix()+3600*24)))
 	insertTags = append(insertTags, tags.NewTimestamp(uint64(time.Now().Unix())))
 
-	err := env.WriteTags(insertTags)
+	err := env.StartConnection()
 	if err != nil {
 		var response types.Response
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+	defer env.EndConnection()
+
+	password := c.Query("password")
+	if password != "" {
+		passwordUint64, err := strconv.ParseUint(password, 0, 32)
+		if err != nil {
+			var response types.Response
+			response.Error = err.Error()
+			c.JSON(http.StatusBadRequest, response)
+			return
+		}
+		passwordUint32 := uint32(passwordUint64)
+		err = env.NTAG21xAuth(passwordUint32)
+		if err != nil {
+			var response types.Response
+			response.Error = "Invalid authentication " + err.Error()
+			c.JSON(http.StatusForbidden, response)
+			return
+		}
+		// Continue with your password processing here...
+	}
+
+	err = env.WriteTags(insertTags)
+	if err != nil {
+		var response types.Response
+		if env.IsAuthRequired() {
+			response.Error = "Password required"
+			c.JSON(http.StatusForbidden, response)
+			return
+		}
 		response.Error = err.Error()
 		c.JSON(http.StatusInternalServerError, response)
 		return
@@ -179,6 +275,14 @@ func (h *HandlerContext) getAllTags(c *gin.Context) {
 		return
 	}
 
+	err := env.StartConnection()
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+	defer env.EndConnection()
+
 	uid, err := env.GetUUID()
 	if err != nil {
 		response.Error = err.Error()
@@ -191,6 +295,35 @@ func (h *HandlerContext) getAllTags(c *gin.Context) {
 		response.Error = "Mismatched tag UUID"
 		c.JSON(http.StatusForbidden, response)
 		return
+	}
+
+	err = env.StartConnection()
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+
+	defer env.EndConnection()
+
+	password := c.Query("password")
+	if password != "" {
+		passwordUint64, err := strconv.ParseUint(password, 0, 32)
+		if err != nil {
+			var response types.Response
+			response.Error = err.Error()
+			c.JSON(http.StatusBadRequest, response)
+			return
+		}
+		passwordUint32 := uint32(passwordUint64)
+		err = env.NTAG21xAuth(passwordUint32)
+		if err != nil {
+			var response types.Response
+			response.Error = "Invalid authentication " + err.Error()
+			c.JSON(http.StatusForbidden, response)
+			return
+		}
+		// Continue with your password processing here...
 	}
 
 	readTags, err := env.ReadTags()
@@ -232,6 +365,7 @@ func main() {
 	r.GET("/read/:uuid/all", handler.getAllTags)
 	r.GET("/write_tags/test", handler.writeTagsTest)
 	r.GET("/setpassword", handler.setPassword)
+	r.GET("/clearpassword", handler.clearPassword)
 
 	r.Run(":7070")
 

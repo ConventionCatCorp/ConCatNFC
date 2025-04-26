@@ -92,6 +92,56 @@ func (h *HandlerContext) writeData(c *gin.Context) {
 	}
 	var response types.Response
 
+	env := h.env
+	success := h.waitForCardReady(c)
+	defer h.releaseCard()
+	if !success {
+		return
+	}
+
+	uid, err := env.GetUUID()
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+
+	if uid != req.UUID {
+		response.Error = "Mismatched card UUID. Did you swapped the card between operations?"
+		c.JSON(http.StatusForbidden, response)
+		return
+	}
+
+	var insertTags []types.Tag
+	insertTags = append(insertTags, tags.NewAttendeeId(req.AttendeeId, req.ConventionId))
+	insertTags = append(insertTags, tags.NewIssuance(req.Issuance))
+	insertTags = append(insertTags, tags.NewTimestamp(req.Timestamp))
+	insertTags = append(insertTags, tags.NewExpiration(req.Expiration))
+	insertTags = append(insertTags, tags.NewTimestamp(req.Expiration))
+	bytessign, err := tags.ValidateSignatureStructure(req.Signature)
+
+	if err != nil {
+		response.Error = "Invalid authentication " + err.Error()
+		c.JSON(http.StatusForbidden, response)
+		return
+	}
+	insertTags = append(insertTags, tags.NewSignature(bytessign))
+
+	err = env.NTAG21xAuth(req.Password)
+	if err != nil {
+		response.Error = "Invalid authentication " + err.Error()
+		c.JSON(http.StatusForbidden, response)
+		return
+	}
+
+	err = env.WriteTags(insertTags)
+
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+
 	c.JSON(http.StatusOK, response)
 }
 
@@ -108,6 +158,54 @@ func (h *HandlerContext) updateData(c *gin.Context) {
 		return
 	}
 	var response types.Response
+
+	env := h.env
+	success := h.waitForCardReady(c)
+	defer h.releaseCard()
+	if !success {
+		return
+	}
+
+	uid, err := env.GetUUID()
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+
+	if uid != req.UUID {
+		response.Error = "Mismatched card UUID. Did you swapped the card between operations?"
+		c.JSON(http.StatusForbidden, response)
+		return
+	}
+
+	err = env.NTAG21xAuth(req.Password)
+	if err != nil {
+		response.Error = "Invalid authentication " + err.Error()
+		c.JSON(http.StatusForbidden, response)
+		return
+	}
+
+	readTags, err := env.ReadTags()
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+
+	newTags, err := tags.UpdateTags(readTags, req)
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+
+	err = env.WriteTags(newTags)
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
 
 	c.JSON(http.StatusOK, response)
 }

@@ -1,9 +1,9 @@
 package tags
 
 import (
-	"encoding/binary"
-
 	"ConcatNFCRegProxy/types"
+	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"time"
 )
@@ -13,6 +13,8 @@ var TAG_SIGNATURE byte = 0x02
 var TAG_ISSUANCE byte = 0x03
 var TAG_TIMESTAMP byte = 0x04
 var TAG_EXPIRATION byte = 0x05
+
+var SIGNATURE_LENGHT = 74
 
 func TagToText(tag types.Tag) (string, error) {
 	switch tag.Id {
@@ -27,8 +29,11 @@ func TagToText(tag types.Tag) (string, error) {
 		}
 	case TAG_SIGNATURE:
 		{
-			//Im not implementing this rn
-			return fmt.Sprintf("TAG=TAG_SIGNATURE Value=%d", 1234), nil
+			if len(tag.Data) != SIGNATURE_LENGHT {
+				return "", fmt.Errorf("Tag TAG_SIGNATURE expected %d bytes but got %d", SIGNATURE_LENGHT, len(tag.Data))
+			}
+			base64Str := base64.StdEncoding.EncodeToString(tag.Data)
+			return fmt.Sprintf("TAG=TAG_SIGNATURE Value=%s", base64Str), nil
 		}
 	case TAG_ISSUANCE:
 		{
@@ -100,12 +105,66 @@ func NewExpiration(unixTimestamp uint64) types.Tag {
 	}
 }
 
-/*
-your time will come
 func NewSignature(signatureData []byte) types.Tag {
-    return types.Tag{
-        Id:   TAG_SIGNATURE,
-        Data: signatureData, // Assuming variable length signature
-    }
+	return types.Tag{
+		Id:   TAG_SIGNATURE,
+		Data: signatureData,
+	}
 }
-*/
+
+func ValidateSignatureStructure(str string) ([]byte, error) {
+	data, err := base64.StdEncoding.DecodeString(str)
+	if err != nil {
+		return []byte{}, err
+	}
+
+	if len(data) != SIGNATURE_LENGHT {
+		return []byte{}, fmt.Errorf("Expected signature to have %d bytes but instead it has %d", SIGNATURE_LENGHT, len(data))
+	}
+
+	return data, nil
+}
+
+func UpdateTagAttendee(tags types.Tag, data types.CardDefinitionRequest) (types.Tag, error) {
+	if data.AttendeeId == 0 || data.ConventionId == 0 {
+		return types.Tag{}, fmt.Errorf("'attendee_id' and 'convention_id' should not be zero or empty")
+	}
+	return NewAttendeeId(data.AttendeeId, data.ConventionId), nil
+}
+
+func UpdateTags(tags []types.Tag, data types.CardDefinitionRequest) ([]types.Tag, error) {
+	var err error
+	var content types.Tag
+	for idx, tag := range tags {
+		if tag.Id == TAG_ATTENDEE_ID {
+			if data.AttendeeId != 0 || data.ConventionId != 0 {
+				content, err = UpdateTagAttendee(tag, data)
+				if err != nil {
+					return []types.Tag{}, err
+				}
+				tags[idx] = content
+			}
+		} else if tag.Id == TAG_ISSUANCE {
+			if data.Issuance != 0 {
+				tags[idx] = NewIssuance(data.Issuance)
+			}
+		} else if tag.Id == TAG_TIMESTAMP {
+			if data.Timestamp != 0 {
+				tags[idx] = NewTimestamp(data.Timestamp)
+			}
+		} else if tag.Id == TAG_EXPIRATION {
+			if data.Expiration != 0 {
+				tags[idx] = NewExpiration(data.Expiration)
+			}
+		} else if tag.Id == TAG_SIGNATURE {
+			if data.Signature != "" {
+				sign, err := ValidateSignatureStructure(data.Signature)
+				if err != nil {
+					return []types.Tag{}, err
+				}
+				tags[idx] = NewSignature(sign)
+			}
+		}
+	}
+	return tags, nil
+}

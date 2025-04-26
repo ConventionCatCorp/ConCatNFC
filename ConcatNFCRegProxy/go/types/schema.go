@@ -17,6 +17,6 @@ type CardDefinitionRequest struct {
 	Timestamp    uint64 `json:"timestamp,omitempty"`
 	Expiration   uint64 `json:"expiration,omitempty"`
 	Signature    string `json:"signature,omitempty"`
-	Password     uint64 `json:"password,omitempty"`
+	Password     uint32 `json:"password,omitempty"`
 	UUID         string `json:"uuid,omitempty"`
 }

@@ -70,6 +70,41 @@ func (h *HandlerContext) getUUID(c *gin.Context) {
 
 }
 
+func (h *HandlerContext) writeData(c *gin.Context) {
+	var req types.CardDefinitionRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	if req.AttendeeId == 0 || req.ConventionId == 0 || req.Issuance == 0 ||
+		req.Timestamp == 0 || req.Expiration == 0 || req.Signature == "" || req.Password == 0 || req.UUID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body, one of the fields are missing"})
+		return
+	}
+	var response types.Response
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *HandlerContext) updateData(c *gin.Context) {
+	var req types.CardDefinitionRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	if req.Signature == "" || req.Password == 0 || req.UUID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body, fields signature, password and uuid are required"})
+		return
+	}
+	var response types.Response
+
+	c.JSON(http.StatusOK, response)
+}
+
 func (h *HandlerContext) setPassword(c *gin.Context) {
 	var response types.Response
 	password := c.Query("password")
@@ -184,25 +219,17 @@ func main() {
 		env: nfc.BeginNfc(),
 	}
 
-	/*for {
-		if handler.env.IsReady() {
-			uid, err := handler.env.GetUUID()
-			if err != nil {
-				fmt.Printf("Err: %s\n", err.Error())
-			} else {
-				fmt.Printf("Found: %s\n", uid)
-			}
-		}
-		time.Sleep(1 * time.Second)
-	}*/
-
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
 	r.GET("/healthcheck", handler.healthcheck)
 	r.GET("/uuid", handler.getUUID)
-	r.GET("/read/:uuid/all", handler.getAllTags)
 
+	r.POST("/write", handler.writeData)
+	r.PUT("/write", handler.updateData)
+
+	//Test only, should be removed later
+	r.GET("/read/:uuid/all", handler.getAllTags)
 	r.GET("/write_tags/test", handler.writeTagsTest)
 	r.GET("/setpassword", handler.setPassword)
 

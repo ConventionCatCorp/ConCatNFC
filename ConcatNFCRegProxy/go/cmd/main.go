@@ -70,10 +70,95 @@ func (h *HandlerContext) getUUID(c *gin.Context) {
 	if err != nil {
 		statusCode = http.StatusInternalServerError
 		response.Error = err.Error()
+		c.JSON(statusCode, response)
+		return
+
 	}
 	response.UUID = uid
-
+	response.Success = true
 	c.JSON(statusCode, response)
+
+}
+
+func (h *HandlerContext) readData(c *gin.Context) {
+	var response types.Response
+	password := c.Query("password")
+	if password == "" {
+		response.Error = "missing 'password' parameter"
+		c.JSON(http.StatusBadRequest, response)
+		return
+	}
+	passwordUint64, err := strconv.ParseUint(password, 0, 32)
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusBadRequest, response)
+		return
+	}
+	passwordUint32 := uint32(passwordUint64)
+	uuidstr := c.Query("uuid")
+	if uuidstr == "" {
+		response.Error = "missing 'uuid' parameter"
+		c.JSON(http.StatusBadRequest, response)
+		return
+	}
+
+	env := h.env
+	success := h.waitForCardReady(c)
+	defer h.releaseCard()
+	if !success {
+		return
+	}
+	err = env.StartConnection()
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+	defer env.EndConnection()
+
+	uid, err := env.GetUUID()
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+
+	if uid != uuidstr {
+		response.Error = "Mismatched card UUID. Did you swapped the card between operations? Current UUID=" + uid
+		c.JSON(http.StatusForbidden, response)
+		return
+	}
+
+	err = env.NTAG21xAuth(passwordUint32)
+	if err != nil {
+		response.Error = "Invalid authentication " + err.Error()
+		c.JSON(http.StatusForbidden, response)
+		return
+	}
+
+	readTags, err := env.ReadTags()
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+
+	if len(readTags) == 0 {
+		response.Error = "Card is empty!"
+		c.JSON(http.StatusExpectationFailed, response)
+		return
+	}
+
+	content, err := tags.TagsToRequest(readTags)
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+
+	response.Card = &content
+	response.Success = true
+	c.JSON(http.StatusOK, response)
 
 }
 
@@ -85,8 +170,8 @@ func (h *HandlerContext) writeData(c *gin.Context) {
 		return
 	}
 
-	if req.AttendeeId == 0 || req.ConventionId == 0 || req.Issuance == 0 ||
-		req.Timestamp == 0 || req.Expiration == 0 || req.Signature == "" || req.Password == 0 || req.UUID == "" {
+	if req.AttendeeId == 0 || req.ConventionId == 0 || req.IssuanceCount == 0 ||
+		req.IssuanceTimestamp == 0 || req.Expiration == 0 || req.Signature == "" || req.Password == 0 || req.UUID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body, one of the fields are missing"})
 		return
 	}
@@ -98,6 +183,13 @@ func (h *HandlerContext) writeData(c *gin.Context) {
 	if !success {
 		return
 	}
+	err := env.StartConnection()
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+	defer env.EndConnection()
 
 	uid, err := env.GetUUID()
 	if err != nil {
@@ -107,15 +199,15 @@ func (h *HandlerContext) writeData(c *gin.Context) {
 	}
 
 	if uid != req.UUID {
-		response.Error = "Mismatched card UUID. Did you swapped the card between operations?"
+		response.Error = "Mismatched card UUID. Did you swapped the card between operations? Current UUID=" + uid
 		c.JSON(http.StatusForbidden, response)
 		return
 	}
 
 	var insertTags []types.Tag
 	insertTags = append(insertTags, tags.NewAttendeeId(req.AttendeeId, req.ConventionId))
-	insertTags = append(insertTags, tags.NewIssuance(req.Issuance))
-	insertTags = append(insertTags, tags.NewTimestamp(req.Timestamp))
+	insertTags = append(insertTags, tags.NewIssuance(req.IssuanceCount))
+	insertTags = append(insertTags, tags.NewTimestamp(req.IssuanceTimestamp))
 	insertTags = append(insertTags, tags.NewExpiration(req.Expiration))
 	insertTags = append(insertTags, tags.NewTimestamp(req.Expiration))
 	bytessign, err := tags.ValidateSignatureStructure(req.Signature)
@@ -141,7 +233,7 @@ func (h *HandlerContext) writeData(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, response)
 		return
 	}
-
+	response.Success = true
 	c.JSON(http.StatusOK, response)
 }
 
@@ -165,6 +257,13 @@ func (h *HandlerContext) updateData(c *gin.Context) {
 	if !success {
 		return
 	}
+	err := env.StartConnection()
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+	defer env.EndConnection()
 
 	uid, err := env.GetUUID()
 	if err != nil {
@@ -174,7 +273,7 @@ func (h *HandlerContext) updateData(c *gin.Context) {
 	}
 
 	if uid != req.UUID {
-		response.Error = "Mismatched card UUID. Did you swapped the card between operations?"
+		response.Error = "Mismatched card UUID. Did you swapped the card between operations? Current UUID=" + uid
 		c.JSON(http.StatusForbidden, response)
 		return
 	}
@@ -207,6 +306,7 @@ func (h *HandlerContext) updateData(c *gin.Context) {
 		return
 	}
 
+	response.Success = true
 	c.JSON(http.StatusOK, response)
 }
 
@@ -249,6 +349,7 @@ func (h *HandlerContext) setPassword(c *gin.Context) {
 		response.Error = err.Error()
 	}
 
+	response.Success = true
 	c.JSON(statusCode, response)
 }
 
@@ -295,7 +396,7 @@ func (h *HandlerContext) clearPassword(c *gin.Context) {
 		statusCode = http.StatusInternalServerError
 		response.Error = err.Error()
 	}
-
+	response.Success = true
 	c.JSON(statusCode, response)
 }
 
@@ -354,7 +455,6 @@ func (h *HandlerContext) writeTagsTest(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, response)
 		return
 	}
-
 	c.JSON(http.StatusOK, len(insertTags))
 
 }
@@ -440,7 +540,7 @@ func (h *HandlerContext) getAllTags(c *gin.Context) {
 		}
 		results = append(results, str)
 	}
-
+	response.Success = true
 	c.JSON(http.StatusOK, results)
 }
 
@@ -457,7 +557,9 @@ func main() {
 	r.GET("/uuid", handler.getUUID)
 
 	r.POST("/write", handler.writeData)
-	r.PUT("/write", handler.updateData)
+	r.PATCH("/write", handler.updateData)
+
+	r.GET("/read", handler.readData)
 
 	//Test only, should be removed later
 	r.GET("/read/:uuid/all", handler.getAllTags)

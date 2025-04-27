@@ -68,6 +68,55 @@ func TagToText(tag types.Tag) (string, error) {
 	}
 }
 
+func TagsToRequest(tags []types.Tag) (types.CardDefinitionRequest, error) {
+	var resp types.CardDefinitionRequest
+	for _, tag := range tags {
+		switch tag.Id {
+		case TAG_ATTENDEE_ID:
+			{
+				if len(tag.Data) != 8 {
+					return resp, fmt.Errorf("Tag TAG_ATTENDEE_ID expected 4 bytes but got %d", len(tag.Data))
+				}
+				resp.AttendeeId = binary.BigEndian.Uint32(tag.Data[0:4])
+				resp.ConventionId = binary.BigEndian.Uint32(tag.Data[4:8])
+			}
+		case TAG_SIGNATURE:
+			{
+				if len(tag.Data) != SIGNATURE_LENGHT {
+					return resp, fmt.Errorf("Tag TAG_SIGNATURE expected %d bytes but got %d", SIGNATURE_LENGHT, len(tag.Data))
+				}
+				resp.Signature = base64.StdEncoding.EncodeToString(tag.Data)
+			}
+		case TAG_ISSUANCE:
+			{
+				if len(tag.Data) != 4 {
+					return resp, fmt.Errorf("Tag TAG_ISSUANCE expected 4 bytes but got %d", len(tag.Data))
+				}
+				resp.IssuanceCount = binary.BigEndian.Uint32(tag.Data)
+			}
+		case TAG_TIMESTAMP:
+			{
+				if len(tag.Data) != 8 {
+					return resp, fmt.Errorf("Tag TAG_TIMESTAMP expected 8 bytes but got %d", len(tag.Data))
+				}
+				resp.IssuanceTimestamp = binary.BigEndian.Uint64(tag.Data)
+			}
+		case TAG_EXPIRATION:
+			{
+				if len(tag.Data) != 8 {
+					return resp, fmt.Errorf("Tag TAG_EXPIRATION expected 8 bytes but got %d", len(tag.Data))
+				}
+				resp.Expiration = binary.BigEndian.Uint64(tag.Data)
+			}
+		default:
+			{
+				return resp, fmt.Errorf("Unexpected tag type: %x", tag.Id)
+			}
+		}
+	}
+	return resp, nil
+}
+
 func NewAttendeeId(userid uint32, conventionid uint32) types.Tag {
 	data := make([]byte, 8)
 	binary.BigEndian.PutUint32(data[0:4], userid)
@@ -145,12 +194,12 @@ func UpdateTags(tags []types.Tag, data types.CardDefinitionRequest) ([]types.Tag
 				tags[idx] = content
 			}
 		} else if tag.Id == TAG_ISSUANCE {
-			if data.Issuance != 0 {
-				tags[idx] = NewIssuance(data.Issuance)
+			if data.IssuanceCount != 0 {
+				tags[idx] = NewIssuance(data.IssuanceCount)
 			}
 		} else if tag.Id == TAG_TIMESTAMP {
-			if data.Timestamp != 0 {
-				tags[idx] = NewTimestamp(data.Timestamp)
+			if data.IssuanceTimestamp != 0 {
+				tags[idx] = NewTimestamp(data.IssuanceTimestamp)
 			}
 		} else if tag.Id == TAG_EXPIRATION {
 			if data.Expiration != 0 {

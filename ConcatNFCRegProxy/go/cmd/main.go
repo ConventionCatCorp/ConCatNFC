@@ -12,8 +12,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type NFCInterface interface {
+	IsReady() bool
+	GetUUID() (string, error)
+	SetNTAG21xPassword(password uint32) error
+	IsAuthRequired() bool
+	NTAG21xAuth(password uint32) error
+	EndConnection()
+	StartConnection() error
+	WriteTags(tags []types.Tag) error
+	ReadTags() ([]types.Tag, error)
+	Lock()
+	Unlock()
+	ClearNTAG21xPassword() error
+}
+
 type HandlerContext struct {
-	env *nfc.NFCEnvoriment
+	env NFCInterface
 }
 
 func (h *HandlerContext) healthcheck(c *gin.Context) {
@@ -32,7 +47,7 @@ func (h *HandlerContext) healthcheck(c *gin.Context) {
 func (h *HandlerContext) waitForCardReady(c *gin.Context) bool {
 	env := h.env
 
-	env.Mtx.Lock()
+	env.Lock()
 
 	var response types.Response
 
@@ -45,7 +60,7 @@ func (h *HandlerContext) waitForCardReady(c *gin.Context) bool {
 }
 
 func (h *HandlerContext) releaseCard() {
-	h.env.Mtx.Unlock()
+	h.env.Unlock()
 }
 
 func (h *HandlerContext) getUUID(c *gin.Context) {
@@ -403,8 +418,8 @@ func (h *HandlerContext) clearPassword(c *gin.Context) {
 func (h *HandlerContext) writeTagsTest(c *gin.Context) {
 	env := h.env
 
-	env.Mtx.Lock()
-	defer env.Mtx.Unlock()
+	env.Lock()
+	defer env.Unlock()
 
 	var insertTags []types.Tag
 	insertTags = append(insertTags, tags.NewAttendeeId(123, 0xff))
@@ -462,8 +477,8 @@ func (h *HandlerContext) writeTagsTest(c *gin.Context) {
 func (h *HandlerContext) getAllTags(c *gin.Context) {
 	env := h.env
 
-	env.Mtx.Lock()
-	defer env.Mtx.Unlock()
+	env.Lock()
+	defer env.Unlock()
 
 	var response types.Response
 
@@ -558,7 +573,6 @@ func main() {
 
 	r.POST("/write", handler.writeData)
 	r.PATCH("/write", handler.updateData)
-
 	r.GET("/read", handler.readData)
 
 	//Test only, should be removed later

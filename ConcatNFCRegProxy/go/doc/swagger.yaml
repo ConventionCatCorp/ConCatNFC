@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Concat NFC proxy
-  description: Proxy to interact with an acr122u nfc reader and provide basic operations trough rest calls... idk wip
+  description: Proxy to interact with an acr122u nfc reader and provide basic operations through REST calls
   version: 1.0.0
 
 servers:
@@ -36,14 +36,14 @@ paths:
 
   /uuid:
     get:
-      summary: Reads the UUID of an nfc card. This operations times out in 20 seconds.
+      summary: Reads the UUID of an NFC card. This operation times out in 20 seconds.
       responses:
         '200':
           description: Found the UUID
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ResponseSuccess'
+                $ref: '#/components/schemas/ResponseSuccessUUID'
         '500':
           description: Error retrieving UUID
           content:
@@ -51,17 +51,239 @@ paths:
               schema:
                 $ref: '#/components/schemas/ResponseError'
 
+  /read:
+    get:
+      summary: Reads data from an NFC card
+      parameters:
+        - name: password
+          in: query
+          description: Password for card authentication
+          required: true
+          schema:
+            type: string
+        - name: uuid
+          in: query
+          description: Expected card UUID for verification
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successfully read card data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseWithCard'
+        '400':
+          description: Missing or invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseError'
+        '403':
+          description: Authentication failed or UUID mismatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseError'
+        '417':
+          description: Card is empty
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseError'
+
+  /write:
+    post:
+      summary: Given an empty card, post some data.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardDefinitionRequest'
+      responses:
+        '200':
+          description: Successfully wrote card data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseSuccess'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseError'
+        '403':
+          description: Authentication failed or UUID mismatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseError'
+
+    patch:
+      summary: Update some data from the card.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardDefinitionRequest'
+      responses:
+        '200':
+          description: Successfully updated card data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseBasic'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseError'
+        '403':
+          description: Authentication failed or UUID mismatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseError'
+
 components:
   schemas:
-    ResponseSuccess:
+    ResponseSuccessUUID:
       type: object
       properties:
         uuid:
           type: string
-          example: 	"04 41 2a 01 4b 34 03"
+          example: "04412a014b3403"
+        success:
+          type: bool
+          example: true
     ResponseError:
       type: object
       properties:
         error:
           type: string
-          example: "Card ATR is too short or some wierd error here~"
+          example: "Error description"
+        success:
+          type: bool
+          example: false
+    ResponseSuccess:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+    ResponseWithCard:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        error:
+          type: string
+          example: ""
+        card:
+          $ref: '#/components/schemas/CardDefinitionResponse'
+    CardDefinitionResponse:
+      type: object
+      properties:
+        attendee_id:
+          type: integer
+          format: uint32
+          example: 12345
+          description: ID of the attendee
+        convention_id:
+          type: integer
+          format: uint32
+          example: 1
+          description: ID of the convention
+        issuance:
+          type: integer
+          format: uint32
+          example: 1
+          description: Issuance count of the card
+        timestamp:
+          type: integer
+          format: uint64
+          example: 1672531200
+          description: Issuance timestamp
+        expiration:
+          type: integer
+          format: uint64
+          example: 1675123200
+          description: Expiration timestamp
+        signature:
+          type: string
+          example: "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MGFzZGY="
+          description: Digital signature for verification
+    CardDefinitionRequest:
+      required:
+        - attendee_id
+        - convention_id
+        - issuance
+        - timestamp
+        - expiration
+        - signature
+        - password
+        - uuid
+      type: object
+      properties:
+        attendee_id:
+          type: integer
+          format: uint32
+          example: 12345
+          description: ID of the attendee
+        convention_id:
+          type: integer
+          format: uint32
+          example: 1
+          description: ID of the convention
+        issuance:
+          type: integer
+          format: uint32
+          example: 1
+          description: Issuance count of the card
+        timestamp:
+          type: integer
+          format: uint64
+          example: 1672531200
+          description: Issuance timestamp
+        expiration:
+          type: integer
+          format: uint64
+          example: 1675123200
+          description: Expiration timestamp
+        signature:
+          type: string
+          example: "a1b2c3d4e5f6"
+          description: Digital signature for verification
+        password:
+          type: integer
+          format: uint32
+          example: 123456
+          description: Password for card authentication
+        uuid:
+          type: string
+          example: "04412a014b3403"
+          description: Card UUID for verification

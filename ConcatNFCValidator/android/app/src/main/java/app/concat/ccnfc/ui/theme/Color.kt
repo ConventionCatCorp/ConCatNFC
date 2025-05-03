@@ -1,4 +1,4 @@
-package com.example.concatnfc.ui.theme
+package app.concat.ccnfc.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

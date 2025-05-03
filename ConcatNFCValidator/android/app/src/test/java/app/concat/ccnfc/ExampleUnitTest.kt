@@ -1,4 +1,4 @@
-package com.example.concatnfc
+package app.concat.ccnfc
 
 import org.junit.Test
 

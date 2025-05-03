@@ -19,6 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ConcatNFC"
+rootProject.name = "CC NFC"
 include(":app")
- 

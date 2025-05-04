@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Icon
@@ -20,6 +21,13 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import app.concat.ccnfc.views.HomeView
+import app.concat.ccnfc.views.ValidatorView
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -35,50 +43,25 @@ class MainActivity : ComponentActivity() {
 // Yes this is not ideal, but I need to focus on speed here a bit
 // typescript what have you done to me
 
-@SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
 @Preview
 @Composable
 fun AppRoot() {
-    Scaffold(modifier = Modifier.fillMaxSize(), bottomBar = {
-        CCBottomNavBar()
-    }) { }
-}
-
-var selection = 0;
-
-@Composable
-fun CCBottomNavBar() {
-    NavigationBar {
-        NavigationBarItem(selection == 0, onClick = { /* do something */ selection = 0 }, icon = { Icon(Icons.Filled.Home, contentDescription = "Home Menu") } )
-        NavigationBarItem(selection == 1, onClick = { /* do something */ selection = 1 }, icon = { Icon(Icons.Filled.Check, contentDescription = "Validation Menu") } )
+    var selection by remember {
+        mutableIntStateOf(0)
     }
+
+    Scaffold(modifier = Modifier.fillMaxSize(), bottomBar = {
+        NavigationBar {
+            NavigationBarItem(selection == 0, onClick = { selection = 0 }, icon = { Icon(Icons.Filled.Home, contentDescription = "Home Menu") }, label = { Text("Home") } )
+            NavigationBarItem(selection == 1, onClick = { selection = 1 }, icon = { Icon(Icons.Filled.Check, contentDescription = "Validation Menu") }, label = { Text("Validate") } )
+        }
+    }) { innerPadding -> CCContentHandler(Modifier.padding(innerPadding), selection) }
 }
 
 @Composable
-fun CCBottomBar() {
-    BottomAppBar (
-        actions = {
-            IconButton(onClick = { /* do something */ }) {
-                Icon(Icons.Filled.Check, contentDescription = "Localized description")
-            }
-            IconButton(onClick = { /* do something */ }) {
-                Icon(
-                    Icons.Filled.Edit,
-                    contentDescription = "Localized description",
-                )
-            }
-            IconButton(onClick = { /* do something */ }) {
-                Icon(
-                    Icons.Filled.Check,
-                    contentDescription = "Localized description",
-                )
-            }
-            IconButton(onClick = { /* do something */ }) {
-                Icon(
-                    Icons.Filled.Check,
-                    contentDescription = "Localized description",
-                )
-            }
-        }
-    )
+fun CCContentHandler(modifier: Modifier = Modifier, selection: Int) {
+    when (selection) {
+        0 -> HomeView(modifier)
+        1 -> ValidatorView(modifier)
+    }
 }

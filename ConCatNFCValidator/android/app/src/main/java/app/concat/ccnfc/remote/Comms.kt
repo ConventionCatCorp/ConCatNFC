@@ -1,4 +1,4 @@
-package app.concat.ccnfc
+package app.concat.ccnfc.remote
 
 class Comms(private var options: Options = Options()) {
     class Options(

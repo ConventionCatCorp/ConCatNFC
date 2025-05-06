@@ -8,7 +8,7 @@ interface NFCInterface {
     fun read(tag: Tag): ByteArray?
 }
 
-// who doesnt love futureproofing
+// who doesn't love future-proofing
 interface WriteableNFCInterface : NFCInterface {
     // Write data to tag
     fun write(tag: Tag, data: ByteArray)

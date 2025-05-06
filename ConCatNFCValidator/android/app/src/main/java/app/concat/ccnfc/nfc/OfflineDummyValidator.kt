@@ -2,7 +2,9 @@ package app.concat.ccnfc.nfc
 
 import android.nfc.Tag
 
-class OfflineValidator(private val nfc: NFCInterface) : ValidatorInterface {
+// Terrible, no good, very bad validator!
+// DEMO PURPOSES ONLY. DO NOT USE IN PRODUCTION.
+class OfflineDummyValidator(private val nfc: NFCInterface) : ValidatorInterface {
     override fun validate(tag: Tag): Boolean {
         val data = nfc.read(tag)
         if (data != null) {

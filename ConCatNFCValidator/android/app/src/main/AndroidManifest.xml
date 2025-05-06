@@ -29,6 +29,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".nfc.NFCActivity"
+            android:exported="false">
+            <intent-filter>
+                <!-- What the hell is this -->
+                <action android:name="android.intent.action.RUN" />
+
+                <!-- Not sure if this should be set at all, this seems to signal whether or not the activity can be launched as part of an external syscall -->
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
     </application>
 
 </manifest>

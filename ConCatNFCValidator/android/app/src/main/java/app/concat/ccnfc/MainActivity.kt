@@ -48,7 +48,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d(TAG, "onCreate called")
-        enableEdgeToEdge()
+//        enableEdgeToEdge()
         setContent {
             CCNFCTheme { AppRoot(this, nfcLauncher) }
         }
@@ -82,8 +82,8 @@ private fun swapToValidate(context: Context, nfcLauncher: ActivityResultLauncher
     Log.d(TAG, "swapToValidate called")
     val intent = NFCActivity.newIntent(context)
     nfcLauncher.launch(intent)
-    val activity = NFCActivity(OfflineDummyValidator(NDEFDummy()))
-    context.startActivity(activity.intent)
+//    val activity = NFCActivity(OfflineDummyValidator(NDEFDummy()))
+//    context.startActivity(activity.intent)
 }
 
 @Composable

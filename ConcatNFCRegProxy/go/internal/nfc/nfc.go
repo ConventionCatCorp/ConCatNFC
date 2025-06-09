@@ -55,6 +55,14 @@ func BeginNfc() *NFCEnvoriment {
 	return &env
 }
 
+func (env *NFCEnvoriment) Lock() {
+	env.Mtx.Lock()
+}
+
+func (env *NFCEnvoriment) Unlock() {
+	env.Mtx.Unlock()
+}
+
 func (env *NFCEnvoriment) IsReady() bool {
 	if !env.ready {
 		return false

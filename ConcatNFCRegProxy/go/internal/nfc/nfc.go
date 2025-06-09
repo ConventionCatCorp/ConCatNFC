@@ -77,44 +77,47 @@ func (env *NFCEnvoriment) IsReady() bool {
 
 func (env *NFCEnvoriment) lookForDevicesRoutine() {
 	var err error
-	env.Mtx.Lock()
 	for {
-		readers, err := env.context.ListReaders()
-		if err != nil {
-			fmt.Printf("No device found %s!\n", err.Error())
-			time.Sleep(1 * time.Second)
-			continue
-		}
-		//We'll be using the first connected device.
-		//In the case of multiple devices connected~
-		if len(readers) > 0 {
-			fmt.Printf("Found a device, those are our readers: %v\n", readers)
-			env.readers = []string{readers[0]}
-			env.ready = true
-			break
-		}
-	}
-	env.Mtx.Unlock()
-	//Now periodically we check if the device have been disconnected, if so we drop restart.
-	for {
-		if !env.IsReady() {
-			fmt.Println("Context might be broken, restarting")
-			env.ready = false
-			env.Mtx.Lock()
-			defer env.Mtx.Unlock()
-			for {
-				env.context, err = scard.EstablishContext()
-				if err != nil {
-					fmt.Printf("Cannot establish connection to scard: %s\n", err.Error())
-					continue
-				}
+		env.Mtx.Lock()
+		for {
+			readers, err := env.context.ListReaders()
+			if err != nil {
+				fmt.Printf("No device found %s!\n", err.Error())
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			//We'll be using the first connected device.
+			//In the case of multiple devices connected~
+			if len(readers) > 0 {
+				fmt.Printf("Found a device, those are our readers: %v\n", readers)
+				env.readers = []string{readers[0]}
+				env.ready = true
 				break
 			}
-			break
 		}
-		time.Sleep(1 * time.Second)
+		env.Mtx.Unlock()
+		//Now periodically we check if the device have been disconnected, if so we drop restart.
+		for {
+			if !env.IsReady() {
+				fmt.Println("Context might be broken, restarting")
+				env.ready = false
+				env.Mtx.Lock()
+
+				for {
+					env.context, err = scard.EstablishContext()
+					if err != nil {
+						fmt.Printf("Cannot establish connection to scard: %s\n", err.Error())
+						time.Sleep(1 * time.Second)
+						continue
+					}
+					break
+				}
+				env.Mtx.Unlock()
+				break
+			}
+			time.Sleep(1 * time.Second)
+		}
 	}
-	env.lookForDevicesRoutine()
 }
 
 func (env *NFCEnvoriment) Unready() {

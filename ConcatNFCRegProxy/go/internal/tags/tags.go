@@ -14,8 +14,6 @@ var TAG_ISSUANCE byte = 0x03
 var TAG_TIMESTAMP byte = 0x04
 var TAG_EXPIRATION byte = 0x05
 
-var SIGNATURE_LENGTH = 74
-
 func TagToText(tag types.Tag) (string, error) {
 	switch tag.Id {
 	case TAG_ATTENDEE_ID:
@@ -29,9 +27,6 @@ func TagToText(tag types.Tag) (string, error) {
 		}
 	case TAG_SIGNATURE:
 		{
-			if len(tag.Data) != SIGNATURE_LENGTH {
-				return "", fmt.Errorf("Tag TAG_SIGNATURE expected %d bytes but got %d", SIGNATURE_LENGTH, len(tag.Data))
-			}
 			base64Str := base64.StdEncoding.EncodeToString(tag.Data)
 			return fmt.Sprintf("TAG=TAG_SIGNATURE Value=%s", base64Str), nil
 		}
@@ -82,9 +77,6 @@ func TagsToRequest(tags []types.Tag) (types.CardDefinitionRequest, error) {
 			}
 		case TAG_SIGNATURE:
 			{
-				if len(tag.Data) != SIGNATURE_LENGTH {
-					return resp, fmt.Errorf("Tag TAG_SIGNATURE expected %d bytes but got %d", SIGNATURE_LENGTH, len(tag.Data))
-				}
 				resp.Signature = base64.StdEncoding.EncodeToString(tag.Data)
 			}
 		case TAG_ISSUANCE:
@@ -165,10 +157,6 @@ func ValidateSignatureStructure(str string) ([]byte, error) {
 	data, err := base64.StdEncoding.DecodeString(str)
 	if err != nil {
 		return []byte{}, err
-	}
-
-	if len(data) != SIGNATURE_LENGTH {
-		return []byte{}, fmt.Errorf("Expected signature to have %d bytes but instead it has %d", SIGNATURE_LENGTH, len(data))
 	}
 
 	return data, nil

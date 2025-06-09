@@ -97,24 +97,21 @@ func (h *HandlerContext) getUUID(c *gin.Context) {
 
 func (h *HandlerContext) readData(c *gin.Context) {
 	var response types.Response
-	password := c.Query("password")
-	if password == "" {
-		response.Error = "missing 'password' parameter"
-		c.JSON(http.StatusBadRequest, response)
+	var err error
+
+	var req types.CardReadSetPasswordRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
-	passwordUint64, err := strconv.ParseUint(password, 0, 32)
-	if err != nil {
-		response.Error = err.Error()
-		c.JSON(http.StatusBadRequest, response)
+
+	if req.UUID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body, one of the fields are missing"})
 		return
 	}
-	passwordUint32 := uint32(passwordUint64)
-	uuidstr := c.Query("uuid")
-	if uuidstr == "" {
-		response.Error = "missing 'uuid' parameter"
-		c.JSON(http.StatusBadRequest, response)
-		return
+	if req.Password == 0 {
+		req.Password = 0xffffffff
 	}
 
 	env := h.env
@@ -138,13 +135,13 @@ func (h *HandlerContext) readData(c *gin.Context) {
 		return
 	}
 
-	if uid != uuidstr {
+	if uid != req.UUID {
 		response.Error = "Mismatched card UUID. Did you swapped the card between operations? Current UUID=" + uid
 		c.JSON(http.StatusForbidden, response)
 		return
 	}
 
-	err = env.NTAG21xAuth(passwordUint32)
+	err = env.NTAG21xAuth(req.Password)
 	if err != nil {
 		response.Error = "Invalid authentication " + err.Error()
 		c.JSON(http.StatusForbidden, response)
@@ -186,7 +183,7 @@ func (h *HandlerContext) writeData(c *gin.Context) {
 	}
 
 	if req.AttendeeId == 0 || req.ConventionId == 0 || req.IssuanceCount == 0 ||
-		req.IssuanceTimestamp == 0 || req.Expiration == 0 || req.Signature == "" || req.Password == 0 || req.UUID == "" {
+		req.IssuanceTimestamp == 0 || req.Signature == "" || req.Password == 0 || req.UUID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body, one of the fields are missing"})
 		return
 	}
@@ -223,8 +220,9 @@ func (h *HandlerContext) writeData(c *gin.Context) {
 	insertTags = append(insertTags, tags.NewAttendeeId(req.AttendeeId, req.ConventionId))
 	insertTags = append(insertTags, tags.NewIssuance(req.IssuanceCount))
 	insertTags = append(insertTags, tags.NewTimestamp(req.IssuanceTimestamp))
-	insertTags = append(insertTags, tags.NewExpiration(req.Expiration))
-	insertTags = append(insertTags, tags.NewTimestamp(req.Expiration))
+	if req.Expiration != 0 {
+		insertTags = append(insertTags, tags.NewExpiration(req.Expiration))
+	}
 	bytessign, err := tags.ValidateSignatureStructure(req.Signature)
 
 	if err != nil {
@@ -327,49 +325,24 @@ func (h *HandlerContext) updateData(c *gin.Context) {
 
 func (h *HandlerContext) setPassword(c *gin.Context) {
 	var response types.Response
-	password := c.Query("password")
-	if password == "" {
+
+	var req types.CardReadSetPasswordRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	if req.UUID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body, one of the fields are missing"})
+		return
+	}
+	if req.Password == 0 {
 		response.Error = "missing password parameter"
 		c.JSON(http.StatusBadRequest, response)
 		return
 	}
-	passwordUint64, err := strconv.ParseUint(password, 0, 32)
-	if err != nil {
-		response.Error = err.Error()
-		c.JSON(http.StatusBadRequest, response)
-		return
-	}
-	passwordUint32 := uint32(passwordUint64)
 
-	env := h.env
-	success := h.waitForCardReady(c)
-	defer h.releaseCard()
-	if !success {
-		return
-	}
-
-	statusCode := http.StatusOK
-	err = env.StartConnection()
-	if err != nil {
-		statusCode = http.StatusInternalServerError
-		response.Error = err.Error()
-		c.JSON(statusCode, response)
-		return
-	}
-	defer env.EndConnection()
-
-	err = env.SetNTAG21xPassword(passwordUint32)
-	if err != nil {
-		statusCode = http.StatusInternalServerError
-		response.Error = err.Error()
-	}
-
-	response.Success = true
-	c.JSON(statusCode, response)
-}
-
-func (h *HandlerContext) clearPassword(c *gin.Context) {
-	var response types.Response
 	env := h.env
 	success := h.waitForCardReady(c)
 	defer h.releaseCard()
@@ -387,23 +360,86 @@ func (h *HandlerContext) clearPassword(c *gin.Context) {
 	}
 	defer env.EndConnection()
 
-	var passwordUint32 uint32
-	password := c.Query("password")
-	if password != "" {
-		passwordUint64, err := strconv.ParseUint(password, 0, 32)
-		if err != nil {
-			response.Error = err.Error()
-			c.JSON(http.StatusBadRequest, response)
-			return
-		}
-		passwordUint32 = uint32(passwordUint64)
-		err = env.NTAG21xAuth(passwordUint32)
-		if err != nil {
-			statusCode = http.StatusInternalServerError
-			response.Error = err.Error()
-			c.JSON(statusCode, response)
-			return
-		}
+	uid, err := env.GetUUID()
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+
+	if uid != req.UUID {
+		response.Error = "Mismatched card UUID. Did you swapped the card between operations? Current UUID=" + uid
+		c.JSON(http.StatusForbidden, response)
+		return
+	}
+
+	err = env.SetNTAG21xPassword(req.Password)
+	if err != nil {
+		statusCode = http.StatusInternalServerError
+		response.Error = err.Error()
+		return
+	}
+
+	response.Success = true
+	c.JSON(statusCode, response)
+}
+
+func (h *HandlerContext) clearPassword(c *gin.Context) {
+	var response types.Response
+
+	var req types.CardReadSetPasswordRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	if req.UUID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body, one of the fields are missing"})
+		return
+	}
+	if req.Password == 0 {
+		response.Error = "missing password parameter"
+		c.JSON(http.StatusBadRequest, response)
+		return
+	}
+
+	env := h.env
+	success := h.waitForCardReady(c)
+	defer h.releaseCard()
+	if !success {
+		return
+	}
+
+	statusCode := http.StatusOK
+	err := env.StartConnection()
+	if err != nil {
+		statusCode = http.StatusInternalServerError
+		response.Error = err.Error()
+		c.JSON(statusCode, response)
+		return
+	}
+	defer env.EndConnection()
+
+	uid, err := env.GetUUID()
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+
+	if uid != req.UUID {
+		response.Error = "Mismatched card UUID. Did you swapped the card between operations? Current UUID=" + uid
+		c.JSON(http.StatusForbidden, response)
+		return
+	}
+
+	err = env.NTAG21xAuth(req.Password)
+	if err != nil {
+		statusCode = http.StatusInternalServerError
+		response.Error = err.Error()
+		c.JSON(statusCode, response)
+		return
 	}
 
 	err = env.ClearNTAG21xPassword()
@@ -559,6 +595,22 @@ func (h *HandlerContext) getAllTags(c *gin.Context) {
 	c.JSON(http.StatusOK, results)
 }
 
+func CORSMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	}
+}
+
 func main() {
 
 	handler := HandlerContext{
@@ -568,18 +620,20 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
+	r.Use(CORSMiddleware())
+
 	r.GET("/healthcheck", handler.healthcheck)
 	r.GET("/uuid", handler.getUUID)
 
 	r.POST("/write", handler.writeData)
 	r.PATCH("/write", handler.updateData)
-	r.GET("/read", handler.readData)
+	r.PUT("/read", handler.readData)
+	r.PUT("/setpassword", handler.setPassword)
+	r.PUT("/clearpassword", handler.clearPassword)
 
 	//Test only, should be removed later
 	r.GET("/read/:uuid/all", handler.getAllTags)
 	r.GET("/write_tags/test", handler.writeTagsTest)
-	r.GET("/setpassword", handler.setPassword)
-	r.GET("/clearpassword", handler.clearPassword)
 
 	r.Run(":7070")
 

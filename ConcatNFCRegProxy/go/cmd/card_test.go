@@ -72,7 +72,7 @@ func setupMock() *gin.Engine {
 	h := &HandlerContext{env: &MockNFC{}}
 	h.env.SetNTAG21xPassword(123)
 	r := gin.Default()
-	r.GET("/read", h.readData)
+	r.PUT("/read", h.readData)
 	r.GET("/uuid", h.getUUID)
 	r.POST("/write", h.writeData)
 	r.PATCH("/write", h.updateData)

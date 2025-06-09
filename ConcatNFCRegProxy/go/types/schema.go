@@ -23,3 +23,8 @@ type CardDefinitionRequest struct {
 	Password          uint32 `json:"password,omitempty"`
 	UUID              string `json:"uuid,omitempty"`
 }
+
+type CardReadSetPasswordRequest struct {
+	Password uint32 `json:"password,omitempty"`
+	UUID     string `json:"uuid,omitempty"`
+}

@@ -18,6 +18,7 @@ type NFCInterface interface {
 	SetNTAG21xPassword(password uint32) error
 	IsAuthRequired() bool
 	NTAG21xAuth(password uint32) error
+	BeepReader() error
 	EndConnection()
 	StartConnection() error
 	WriteTags(tags []types.Tag) error
@@ -246,6 +247,7 @@ func (h *HandlerContext) writeData(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, response)
 		return
 	}
+	_ = env.BeepReader()
 	response.Success = true
 	c.JSON(http.StatusOK, response)
 }

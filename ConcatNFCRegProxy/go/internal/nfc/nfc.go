@@ -200,6 +200,44 @@ func (env *NFCEnvoriment) transmitVendorCommand(card *scard.Card, vendorCommand 
 	return success, resp[2:], err
 }
 
+// controlLEDAndBuzzer sends a command to the ACR122U to control the LED and buzzer
+// See ACR122U v2.04 p22
+func (env *NFCEnvoriment) controlLEDAndBuzzer(red bool, green bool, buzzerDurationMS uint, buzzerRepeat uint8) error {
+	var command []byte
+
+	var LEDState uint8
+	var Buzzer uint8
+	if red {
+		LEDState |= 0x5
+	}
+	if green {
+		LEDState |= 0xa
+	}
+	Buzzer = 0x1
+	var duration uint8
+	if buzzerDurationMS/100 > 255 {
+		duration = 255
+	} else {
+		duration = uint8(buzzerDurationMS / 100)
+	}
+
+	command = append(command, []byte{0xff, 0x00, 0x40, LEDState, 0x4, duration, duration, buzzerRepeat, Buzzer}...)
+	success, resp, err := env.transmitAndValidate(env.cardConnection, command)
+	if err != nil {
+		return err
+	}
+	if !success {
+		return fmt.Errorf("failed to transmit led")
+	}
+	if len(resp) < 2 {
+		return fmt.Errorf("response too short")
+	}
+	if resp[0] != 0x90 {
+		return fmt.Errorf("Unexpected response from Vendor command. got % x", resp[0:2])
+	}
+	return nil
+}
+
 func (env *NFCEnvoriment) connectAndValidateCard(index int) (*scard.Card, error) {
 	card, err := env.context.Connect(env.readers[index], scard.ShareShared, scard.ProtocolAny)
 	if err != nil {
@@ -631,6 +669,10 @@ func (env *NFCEnvoriment) WriteTags(tags []types.Tag) error {
 	}
 
 	return env.cardConnection.EndTransaction(0)
+}
+
+func (env *NFCEnvoriment) BeepReader() error {
+	return env.controlLEDAndBuzzer(false, true, 100, 2)
 }
 
 func (env *NFCEnvoriment) ReadTags() ([]types.Tag, error) {

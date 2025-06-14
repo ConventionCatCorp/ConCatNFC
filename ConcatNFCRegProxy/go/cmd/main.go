@@ -1,6 +1,8 @@
 package main
 
 import (
+	"ConcatNFCRegProxy/broker"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -30,6 +32,7 @@ type NFCInterface interface {
 
 type HandlerContext struct {
 	env NFCInterface
+	b   *broker.Broker[string]
 }
 
 func (h *HandlerContext) healthcheck(c *gin.Context) {
@@ -512,6 +515,26 @@ func (h *HandlerContext) writeTagsTest(c *gin.Context) {
 
 }
 
+func (h *HandlerContext) sseHandler(c *gin.Context) {
+	// Set the headers for SSE
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("Transfer-Encoding", "chunked")
+
+	// Create a channel to send events
+	eventChan := h.b.Subscribe()
+
+	// Write events to client
+	c.Stream(func(w io.Writer) bool {
+		if event, ok := <-eventChan; ok {
+			_, err := w.Write([]byte(event))
+			return err == nil
+		}
+		return false
+	})
+}
+
 func (h *HandlerContext) getAllTags(c *gin.Context) {
 	env := h.env
 
@@ -614,10 +637,29 @@ func CORSMiddleware() gin.HandlerFunc {
 }
 
 func main() {
+	b := broker.NewBroker[string]()
+	go b.Start()
 
 	handler := HandlerContext{
-		env: nfc.BeginNfc(),
+		env: nfc.BeginNfc(b),
+		b:   b,
 	}
+
+	/*	// Start publishing messages:
+		go func() {
+			for msgId := 0; ; msgId++ {
+				message := struct {
+					Event string `json:"Event"`
+				}{
+					Event: fmt.Sprintf("ping %d", msgId),
+				}
+				jsonData, err := json.Marshal(message)
+				if err == nil {
+					b.Publish(fmt.Sprintf("data: %s\n\n", jsonData))
+				}
+				time.Sleep(1000 * time.Millisecond)
+			}
+		}()*/
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
@@ -633,10 +675,12 @@ func main() {
 	r.PUT("/setpassword", handler.setPassword)
 	r.PUT("/clearpassword", handler.clearPassword)
 
+	r.GET("/events", handler.sseHandler)
+
 	//Test only, should be removed later
 	r.GET("/read/:uuid/all", handler.getAllTags)
 	r.GET("/write_tags/test", handler.writeTagsTest)
 
-	r.Run(":7070")
+	r.Run("127.0.0.1:7070")
 
 }

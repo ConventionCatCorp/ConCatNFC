@@ -1,8 +1,10 @@
 package nfc
 
 import (
+	"ConcatNFCRegProxy/broker"
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -24,15 +26,17 @@ var OPERATION_READ = []byte{0xFF, 0xB0, 0x00, 0x00, PAGE_SIZE}
 var OPERATION_WRITE = []byte{0xFF, 0xD6, 0x00, 0x00, PAGE_SIZE}
 
 type NFCEnvoriment struct {
-	context        *scard.Context
-	ready          bool
-	Mtx            sync.Mutex
-	readers        []string
-	version        []byte
-	cardConnection *scard.Card
-	buffer         []byte
-	currentPage    byte
-	lastErrorCode  []byte
+	context                *scard.Context
+	ready                  bool
+	Mtx                    sync.Mutex
+	readers                []string
+	version                []byte
+	cardConnection         *scard.Card
+	buffer                 []byte
+	currentPage            byte
+	lastErrorCode          []byte
+	eventBroker            *broker.Broker[string]
+	lastTimeReadersChanged time.Time
 }
 
 type CardInfo struct {
@@ -41,18 +45,85 @@ type CardInfo struct {
 	Memory       int
 }
 
-func BeginNfc() *NFCEnvoriment {
+func BeginNfc(eventBroker *broker.Broker[string]) *NFCEnvoriment {
 	var env NFCEnvoriment
 	var err error
+	env.eventBroker = eventBroker
 	env.context, err = scard.EstablishContext()
 	if err != nil {
 		fmt.Printf("Cannot establish connection to scard: %u", err)
 		return nil
 	}
 
+	if env.eventBroker != nil {
+		go env.eventHandler()
+	}
+
 	go env.lookForDevicesRoutine()
 
 	return &env
+}
+
+func (env *NFCEnvoriment) sendEvent(event string) {
+	message := struct {
+		Event string `json:"Event"`
+	}{
+		Event: event,
+	}
+	jsonData, err := json.Marshal(message)
+	if err == nil {
+		env.eventBroker.Publish(fmt.Sprintf("data: %s\n\n", jsonData))
+	}
+}
+
+func (env *NFCEnvoriment) eventHandler() {
+	var lastTimeReadersChanged time.Time
+	for {
+		if len(env.readers) == 0 {
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		lastTimeReadersChanged = env.GetTimeReadersChanged()
+		//Im leaving it here just in case we decide to use multiple card readers, blep
+		rs := make([]scard.ReaderState, len(env.readers))
+		for i := range rs {
+			rs[i].Reader = env.readers[i]
+			rs[i].CurrentState = scard.StateUnaware
+			rs[i].UserData = scard.StateUnaware
+		}
+
+		for {
+			err := env.context.GetStatusChange(rs, -1)
+			if err != nil {
+				fmt.Printf("eventHandler: Got error: %v\n", err)
+				env.sendEvent("Reader error")
+				if lastTimeReadersChanged != env.GetTimeReadersChanged() {
+					// Break to go and re-read readers
+					fmt.Printf("eventHandler: Readers changed...\n")
+					break
+				}
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			for i := range rs {
+				previousState, ok := rs[i].UserData.(scard.StateFlag)
+				if ok && previousState&(scard.StatePresent|scard.StateEmpty) == rs[i].EventState&(scard.StatePresent|scard.StateEmpty) {
+					continue
+				}
+				fmt.Printf("eventHandler: Reader %d state changed to %08x\n", i, rs[i].EventState)
+				if rs[i].EventState&scard.StatePresent != 0 {
+					fmt.Printf("Got card present on reader %d\n", i)
+					env.sendEvent("Card present")
+				}
+				if rs[i].EventState&scard.StateEmpty != 0 {
+					fmt.Printf("Got card removed on reader %d\n", i)
+					env.sendEvent("Card NOT present")
+				}
+				rs[i].CurrentState = rs[i].EventState
+				rs[i].UserData = rs[i].EventState & (scard.StatePresent | scard.StateEmpty)
+			}
+		}
+	}
 }
 
 func (env *NFCEnvoriment) Lock() {
@@ -69,10 +140,16 @@ func (env *NFCEnvoriment) IsReady() bool {
 	}
 	valid, err := env.context.IsValid()
 	if !valid {
-		fmt.Printf("Lost connection to the scard %s", err.Error())
+		fmt.Printf("Lost connection to the scard %v", err)
 		env.Unready()
 	}
 	return env.ready
+}
+
+func (env *NFCEnvoriment) GetTimeReadersChanged() time.Time {
+	env.Mtx.Lock()
+	defer env.Mtx.Unlock()
+	return env.lastTimeReadersChanged
 }
 
 func (env *NFCEnvoriment) lookForDevicesRoutine() {
@@ -94,6 +171,7 @@ func (env *NFCEnvoriment) lookForDevicesRoutine() {
 				env.ready = true
 				break
 			}
+			env.lastTimeReadersChanged = time.Now()
 		}
 		env.Mtx.Unlock()
 		//Now periodically we check if the device have been disconnected, if so we drop restart.
@@ -102,6 +180,8 @@ func (env *NFCEnvoriment) lookForDevicesRoutine() {
 				fmt.Println("Context might be broken, restarting")
 				env.ready = false
 				env.Mtx.Lock()
+				env.lastTimeReadersChanged = time.Now()
+				env.readers = []string{}
 
 				for {
 					env.context, err = scard.EstablishContext()

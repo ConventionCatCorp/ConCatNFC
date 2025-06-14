@@ -164,7 +164,7 @@ func ValidateSignatureStructure(str string) ([]byte, error) {
 
 func UpdateTagAttendee(tags types.Tag, data types.CardDefinitionRequest) (types.Tag, error) {
 	if data.AttendeeId == 0 || data.ConventionId == 0 {
-		return types.Tag{}, fmt.Errorf("'attendee_id' and 'convention_id' should not be zero or empty")
+		return types.Tag{}, fmt.Errorf("'attendeeId' and 'conventionId' should not be zero or empty")
 	}
 	return NewAttendeeId(data.AttendeeId, data.ConventionId), nil
 }

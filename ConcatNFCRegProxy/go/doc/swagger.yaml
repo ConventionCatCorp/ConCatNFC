@@ -208,12 +208,12 @@ components:
     CardDefinitionResponse:
       type: object
       properties:
-        attendee_id:
+        attendeeId:
           type: integer
           format: uint32
           example: 12345
           description: ID of the attendee
-        convention_id:
+        conventionId:
           type: integer
           format: uint32
           example: 1
@@ -239,8 +239,8 @@ components:
           description: Digital signature for verification
     CardDefinitionRequest:
       required:
-        - attendee_id
-        - convention_id
+        - attendeeId
+        - conventionId
         - issuance
         - timestamp
         - expiration
@@ -249,12 +249,12 @@ components:
         - uuid
       type: object
       properties:
-        attendee_id:
+        attendeeId:
           type: integer
           format: uint32
           example: 12345
           description: ID of the attendee
-        convention_id:
+        conventionId:
           type: integer
           format: uint32
           example: 1

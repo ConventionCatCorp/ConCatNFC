@@ -44,8 +44,6 @@ func (m *MockNFC) NTAG21xAuth(password uint32) error {
 	return nil
 }
 
-func (m *MockNFC) EndConnection()         {}
-func (m *MockNFC) StartConnection() error { return nil }
 func (m *MockNFC) WriteTags(tags []types.Tag) error {
 	m.StoredTags = append([]types.Tag{}, tags...) // Copy to avoid reference issues
 	return nil

@@ -2,6 +2,7 @@ package main
 
 import (
 	"ConcatNFCRegProxy/broker"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -21,8 +22,6 @@ type NFCInterface interface {
 	IsAuthRequired() bool
 	NTAG21xAuth(password uint32) error
 	BeepReader() error
-	EndConnection()
-	StartConnection() error
 	WriteTags(tags []types.Tag) error
 	ReadTags() ([]types.Tag, error)
 	Lock()
@@ -68,23 +67,18 @@ func (h *HandlerContext) releaseCard() {
 }
 
 func (h *HandlerContext) getUUID(c *gin.Context) {
+	var response types.Response
+
 	env := h.env
 	success := h.waitForCardReady(c)
 	defer h.releaseCard()
 	if !success {
-		return
-	}
-
-	var response types.Response
-
-	statusCode := http.StatusOK
-	err := env.StartConnection()
-	if err != nil {
-		response.Error = err.Error()
+		response.Error = fmt.Sprintf("Card not ready")
 		c.JSON(http.StatusInternalServerError, response)
 		return
 	}
-	defer env.EndConnection()
+
+	statusCode := http.StatusOK
 	uid, err := env.GetUUID()
 	if err != nil {
 		statusCode = http.StatusInternalServerError
@@ -124,13 +118,6 @@ func (h *HandlerContext) readData(c *gin.Context) {
 	if !success {
 		return
 	}
-	err = env.StartConnection()
-	if err != nil {
-		response.Error = err.Error()
-		c.JSON(http.StatusInternalServerError, response)
-		return
-	}
-	defer env.EndConnection()
 
 	uid, err := env.GetUUID()
 	if err != nil {
@@ -199,13 +186,6 @@ func (h *HandlerContext) writeData(c *gin.Context) {
 	if !success {
 		return
 	}
-	err := env.StartConnection()
-	if err != nil {
-		response.Error = err.Error()
-		c.JSON(http.StatusInternalServerError, response)
-		return
-	}
-	defer env.EndConnection()
 
 	uid, err := env.GetUUID()
 	if err != nil {
@@ -275,13 +255,6 @@ func (h *HandlerContext) updateData(c *gin.Context) {
 	if !success {
 		return
 	}
-	err := env.StartConnection()
-	if err != nil {
-		response.Error = err.Error()
-		c.JSON(http.StatusInternalServerError, response)
-		return
-	}
-	defer env.EndConnection()
 
 	uid, err := env.GetUUID()
 	if err != nil {
@@ -352,18 +325,13 @@ func (h *HandlerContext) setPassword(c *gin.Context) {
 	success := h.waitForCardReady(c)
 	defer h.releaseCard()
 	if !success {
+		response.Error = "Card did not become ready"
+		c.JSON(http.StatusInternalServerError, response)
 		return
+
 	}
 
 	statusCode := http.StatusOK
-	err := env.StartConnection()
-	if err != nil {
-		statusCode = http.StatusInternalServerError
-		response.Error = err.Error()
-		c.JSON(statusCode, response)
-		return
-	}
-	defer env.EndConnection()
 
 	uid, err := env.GetUUID()
 	if err != nil {
@@ -382,6 +350,7 @@ func (h *HandlerContext) setPassword(c *gin.Context) {
 	if err != nil {
 		statusCode = http.StatusInternalServerError
 		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
 		return
 	}
 
@@ -417,14 +386,6 @@ func (h *HandlerContext) clearPassword(c *gin.Context) {
 	}
 
 	statusCode := http.StatusOK
-	err := env.StartConnection()
-	if err != nil {
-		statusCode = http.StatusInternalServerError
-		response.Error = err.Error()
-		c.JSON(statusCode, response)
-		return
-	}
-	defer env.EndConnection()
 
 	uid, err := env.GetUUID()
 	if err != nil {
@@ -470,15 +431,6 @@ func (h *HandlerContext) writeTagsTest(c *gin.Context) {
 	insertTags = append(insertTags, tags.NewExpiration(uint64(time.Now().Unix()+3600*24)))
 	insertTags = append(insertTags, tags.NewTimestamp(uint64(time.Now().Unix())))
 
-	err := env.StartConnection()
-	if err != nil {
-		var response types.Response
-		response.Error = err.Error()
-		c.JSON(http.StatusInternalServerError, response)
-		return
-	}
-	defer env.EndConnection()
-
 	password := c.Query("password")
 	if password != "" {
 		passwordUint64, err := strconv.ParseUint(password, 0, 32)
@@ -499,7 +451,7 @@ func (h *HandlerContext) writeTagsTest(c *gin.Context) {
 		// Continue with your password processing here...
 	}
 
-	err = env.WriteTags(insertTags)
+	err := env.WriteTags(insertTags)
 	if err != nil {
 		var response types.Response
 		if env.IsAuthRequired() {
@@ -549,14 +501,6 @@ func (h *HandlerContext) getAllTags(c *gin.Context) {
 		return
 	}
 
-	err := env.StartConnection()
-	if err != nil {
-		response.Error = err.Error()
-		c.JSON(http.StatusInternalServerError, response)
-		return
-	}
-	defer env.EndConnection()
-
 	uid, err := env.GetUUID()
 	if err != nil {
 		response.Error = err.Error()
@@ -570,15 +514,6 @@ func (h *HandlerContext) getAllTags(c *gin.Context) {
 		c.JSON(http.StatusForbidden, response)
 		return
 	}
-
-	err = env.StartConnection()
-	if err != nil {
-		response.Error = err.Error()
-		c.JSON(http.StatusInternalServerError, response)
-		return
-	}
-
-	defer env.EndConnection()
 
 	password := c.Query("password")
 	if password != "" {

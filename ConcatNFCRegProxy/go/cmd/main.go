@@ -108,7 +108,10 @@ func (h *HandlerContext) readData(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body, one of the fields are missing"})
 		return
 	}
+
+	nullPassword := false
 	if req.Password == 0 {
+		nullPassword = true
 		req.Password = 0xffffffff
 	}
 
@@ -134,9 +137,15 @@ func (h *HandlerContext) readData(c *gin.Context) {
 
 	err = env.NTAG21xAuth(req.Password)
 	if err != nil {
-		response.Error = "Invalid authentication " + err.Error()
-		c.JSON(http.StatusForbidden, response)
-		return
+		if err.Error() == "Operation failed to complete. Error code 63 00\n" && nullPassword == false {
+			time.Sleep(1000 * time.Millisecond)
+			err = env.NTAG21xAuth(req.Password)
+		}
+		if err != nil {
+			response.Error = "Invalid authentication " + err.Error()
+			c.JSON(http.StatusForbidden, response)
+			return
+		}
 	}
 
 	readTags, err := env.ReadTags()
@@ -616,6 +625,6 @@ func main() {
 	r.GET("/read/:uuid/all", handler.getAllTags)
 	r.GET("/write_tags/test", handler.writeTagsTest)
 
-	r.Run("127.0.0.1:7070")
+	r.Run(":7070")
 
 }

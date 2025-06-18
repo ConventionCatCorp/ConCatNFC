@@ -52,11 +52,7 @@ func (h *HandlerContext) waitForCardReady(c *gin.Context) bool {
 
 	env.Lock()
 
-	var response types.Response
-
 	if !h.env.IsReady() {
-		response.Error = "Card reader not avalible or not ready"
-		c.JSON(http.StatusInternalServerError, response)
 		return false
 	}
 	return true
@@ -81,7 +77,7 @@ func (h *HandlerContext) getUUID(c *gin.Context) {
 	statusCode := http.StatusOK
 	uid, err := env.GetUUID()
 	if err != nil {
-		statusCode = http.StatusInternalServerError
+		statusCode = http.StatusUnsupportedMediaType
 		response.Error = err.Error()
 		c.JSON(statusCode, response)
 		return

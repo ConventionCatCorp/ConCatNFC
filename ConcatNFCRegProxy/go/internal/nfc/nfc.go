@@ -38,6 +38,7 @@ type NFCEnvoriment struct {
 	eventBroker            *broker.Broker[string]
 	lastTimeReadersChanged time.Time
 	connectedReaderIndex   int
+	cardStatus             string
 }
 
 type CardInfo struct {
@@ -146,11 +147,13 @@ func (env *NFCEnvoriment) eventHandler() {
 func (env *NFCEnvoriment) ResetCard() error {
 	fmt.Printf("Resetting card\n")
 	if env.cardConnection == nil {
+		fmt.Printf("No card connected\n")
 		return fmt.Errorf("no card connected")
 	}
 	env.cardConnection.Disconnect(scard.ResetCard)
 	card, err := env.connectAndValidateCard(env.connectedReaderIndex)
 	if err != nil {
+		fmt.Printf("Failed to reconnect: %v\n", err)
 		return err
 	}
 	fmt.Printf("Connected to card\n")
@@ -272,7 +275,7 @@ func (env *NFCEnvoriment) transmitAndValidate(card *scard.Card, message []byte) 
 		return false, nil, fmt.Errorf("card not ready")
 	}
 	if card == nil {
-		return false, nil, fmt.Errorf("card is nil")
+		return false, nil, fmt.Errorf(env.cardStatus)
 	}
 	rsp, err := card.Transmit(message)
 	if err != nil {
@@ -372,8 +375,9 @@ func (env *NFCEnvoriment) connectAndValidateCard(index int) (*scard.Card, error)
 		// Need to check for MIFARE Ultralight
 		rspCodeBytes := status.Atr[:15]
 		if !bytes.Equal(rspCodeBytes, OPERATION_GET_SUPPORTED_CARD_SIGNATURE) {
+			env.cardStatus = "Unsupported card"
 			card.Disconnect(scard.ResetCard)
-			return nil, fmt.Errorf("Operation failed to complete. Error code % x\n", rspCodeBytes)
+			return nil, fmt.Errorf("Unsupported card")
 		}
 		success, version, err := env.transmitVendorCommand(card, []byte{0x60})
 		if err != nil {

@@ -6,12 +6,14 @@ import android.nfc.NdefMessage
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.nfc.tech.MifareUltralight
+import android.os.Build
 import android.os.Bundle
 import android.os.Looper
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -25,8 +27,17 @@ import com.example.concatnfc.ui.auth.LoginScreen
 import com.example.concatnfc.ui.theme.ConcatNFCTheme
 import com.example.concatnfc.utils.ApiClient
 import kotlinx.coroutines.runBlocking
+import java.security.KeyFactory
+import java.security.Signature
 import java.security.interfaces.ECKey
-
+import java.security.interfaces.ECPublicKey
+import java.security.spec.ECParameterSpec
+import java.security.spec.ECPoint
+import java.security.spec.ECPublicKeySpec
+import java.security.AlgorithmParameters
+import java.security.spec.ECGenParameterSpec
+import java.util.Base64
+import java.math.BigInteger
 
 class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     private lateinit var mNfcAdapter: NfcAdapter
@@ -104,6 +115,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
     override fun onTagDiscovered(tag: Tag) {
         if (Looper.myLooper() == null) {
             Looper.prepare()
@@ -155,7 +167,12 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             val tags = nfc.readTags()
 
             val attendeeAndConvention = tags.getTag(TagId.ATTENDEE_CONVENTION_ID)
-            val signature = tags.getTag(TagId.SIGNATURE)
+            val signatureTag = tags.getTag(TagId.SIGNATURE)
+            if (signatureTag == null) {
+                Toast.makeText(this, "Signature tag not found", Toast.LENGTH_LONG).show()
+                return
+            }
+
             var nfcPublicKey: JWK
             try {
                 nfcPublicKey = getNFCPublicKey()
@@ -180,7 +197,41 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             }
             sortedJSONString = sortedJSONString.dropLast(1)
             sortedJSONString += "}"
-            return
+
+            val algorithmParameters = AlgorithmParameters.getInstance("EC")
+            val curveName = when (nfcPublicKey.crv) {
+                "P-256" -> "secp256r1" // P-256 is also known as secp256r1
+                else -> throw IllegalArgumentException("Unsupported curve: ${nfcPublicKey.crv}")
+            }
+            algorithmParameters.init(ECGenParameterSpec(curveName))
+            val ecSpec = algorithmParameters.getParameterSpec(ECParameterSpec::class.java)
+
+            val keyFactory = KeyFactory.getInstance("EC")
+
+            val x = BigInteger(1, Base64.getUrlDecoder().decode(nfcPublicKey.x))
+            val y = BigInteger(1, Base64.getUrlDecoder().decode(nfcPublicKey.y))
+
+            val ecPublicKey = keyFactory.generatePublic(ECPublicKeySpec(
+                ECPoint(
+                    x,
+                    y
+                ),
+                ecSpec
+            )) as ECPublicKey
+
+            val signatureValidator = Signature.getInstance("SHA256withECDSA")
+            signatureValidator.initVerify(ecPublicKey)
+            signatureValidator.update(sortedJSONString.toByteArray())
+
+            val signatureBytes = signatureTag.getTagValueBytes().getOrElse { throw it }
+
+            val isValid = signatureValidator.verify(signatureBytes)
+
+            if (isValid) {
+                Toast.makeText(this, "Signature is valid!", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(this, "Signature is invalid!", Toast.LENGTH_LONG).show()
+            }
         }
     }
 

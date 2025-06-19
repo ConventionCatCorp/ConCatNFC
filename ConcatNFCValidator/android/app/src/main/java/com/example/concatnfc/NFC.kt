@@ -24,41 +24,53 @@ enum class TagId(val id: Byte) {
     }
 }
 
+fun ByteArray.toULongLe(): ULong {
+    require(size >= 8) { "ByteArray must contain at least 8 bytes for ULong conversion." }
+    var result: ULong = 0uL
+    for (i in 0 until 8) {
+        result = result or ((this[i].toULong() and 0xFFu) shl (i * 8))
+    }
+    return result
+}
+
+fun ByteArray.toULongBe(): ULong {
+    require(size >= 8) { "ByteArray must contain at least 8 bytes for ULong conversion." }
+    var result: ULong = 0uL
+    for (i in 0 until 8) {
+        result = result or ((this[i].toULong() and 0xFFu) shl ((7 - i) * 8))
+    }
+    return result
+}
+
+fun ByteArray.toUintLe(): UInt {
+    require(size >= 4) { "ByteArray must contain at least 4 bytes for ULong conversion." }
+    var result: UInt = 0u
+    for (i in 0 until 4) {
+        result = result or ((this[i].toUInt() and 0xFFu) shl (i * 8))
+    }
+    return result
+}
+
+fun ByteArray.toUIntBe(): UInt {
+    require(size >= 4) { "ByteArray must contain at least 4 bytes for ULong conversion." }
+    var result: UInt = 0u
+    for (i in 0 until 4) {
+        result = result or ((this[i].toUInt() and 0xFFu) shl ((3 - i) * 8))
+    }
+    return result
+}
+
 class Tag(val id: Byte, val data: ByteArray) {
     fun getTagValueULong(): Result<ULong> {
         when (data.size) {
             4 -> {
-                val byte0 = data[0].toUInt() and 0xFFu
-                val byte1 = data[1].toUInt() and 0xFFu
-                val byte2 = data[2].toUInt() and 0xFFu
-                val byte3 = data[3].toUInt() and 0xFFu
-
-                return runCatching {(
-                    (byte0 shl 24) or
-                    (byte1 shl 16) or
-                    (byte2 shl 8) or
-                    byte3).toULong()
+                return runCatching {
+                    data.toUIntBe().toULong()
                 }
             }
             8 -> {
-                val byte0 = data[0].toUInt() and 0xFFu
-                val byte1 = data[1].toUInt() and 0xFFu
-                val byte2 = data[2].toUInt() and 0xFFu
-                val byte3 = data[3].toUInt() and 0xFFu
-                val byte4 = data[4].toUInt() and 0xFFu
-                val byte5 = data[5].toUInt() and 0xFFu
-                val byte6 = data[6].toUInt() and 0xFFu
-                val byte7 = data[7].toUInt() and 0xFFu
-
-                return runCatching {(
-                        (byte0 shl 56) or
-                                (byte1 shl 48) or
-                                (byte2 shl 40) or
-                                (byte3 shl 32) or
-                                (byte4 shl 24) or
-                                (byte5 shl 16) or
-                                (byte6 shl 8) or
-                                byte7).toULong()
+                return runCatching {
+                    data.toULongBe()
                 }
             }
             else -> {
@@ -170,7 +182,7 @@ class TagArray {
             when (TagId.fromId(tag.id)) {
                 TagId.ATTENDEE_CONVENTION_ID -> {
                     val attendeeAndConvention = tag.getTagValueDualUInt()
-                    json.put("attendeeId", attendeeAndConvention
+                    json.put("userId", attendeeAndConvention
                         .getOrElse { throw it }
                         .first
                     )
@@ -182,7 +194,7 @@ class TagArray {
                 TagId.SIGNATURE -> json.put("signature", tag.getTagValueBytes()
                     .getOrElse { throw it }
                 )
-                TagId.ISSUANCE -> json.put("issuance", tag.getTagValueULong()
+                TagId.ISSUANCE -> json.put("issuanceCount", tag.getTagValueULong()
                     .getOrElse { throw it }
                 )
                 TagId.TIMESTAMP -> json.put("timestamp", tag.getTagValueULong()

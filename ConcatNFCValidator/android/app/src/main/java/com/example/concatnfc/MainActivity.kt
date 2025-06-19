@@ -15,10 +15,15 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -44,11 +49,13 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     private lateinit var pendingIntent: PendingIntent
     private lateinit var isLoggedIn: MutableState<Boolean>
     private lateinit var nfc: NFC;
+    private lateinit var validationState: MutableState<Boolean?>
 
     @Composable
     fun MainContent(onLoginSuccess: () -> Unit = {}) {
         val context = LocalContext.current
         isLoggedIn = remember { mutableStateOf(ApiClient.getAuthToken(context) != null) }
+        validationState = remember { mutableStateOf<Boolean?>(null) }
 
         Surface(
             modifier = Modifier.fillMaxSize(),
@@ -57,10 +64,21 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             if (isLoggedIn.value) {
                 // Main app content
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Concat NFC",
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                    Column(
+                        modifier = Modifier
+                            .padding(innerPadding)
+                            .fillMaxSize(),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        when (validationState.value) {
+                            true -> ValidationResult(isValid = true)
+                            false -> ValidationResult(isValid = false)
+                            null -> Greeting(
+                                name = "Concat NFC",
+                            )
+                        }
+                    }
                 }
             } else {
                 LoginScreen(
@@ -127,25 +145,17 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             while(!mifare.isConnected());
             var response: ByteArray
 
-/*            mifare.transceive(
-                byteArrayOf(
-                    0xA2.toByte(),  // WRITE
-                    0x0a.toByte(),  //u page address
-                    0xaa.toByte(),
-                    0xbb.toByte(),
-                    0xcc.toByte(),
-                    0xdd.toByte()
-                )
-            )*/
             var uid = tag.id
             var passwordString: String
             try {
                 passwordString = getPasswordForTag(uid)
             } catch (e: APIError) {
                 if (e.responseCode == 404) {
+                    showValidationResult(false)
                     Toast.makeText(this, "This tag is not registered with this convention.", Toast.LENGTH_LONG).show()
                     return
                 }
+                showValidationResult(false)
                 Toast.makeText(this, e.message, Toast.LENGTH_LONG).show()
                 return
             }
@@ -155,12 +165,14 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
 
             if (locked) {
                 if (!nfc.unlockTag(password)) {
+                    showValidationResult(false)
                     Toast.makeText(this, "Cannot unlock tag.", Toast.LENGTH_LONG).show()
                     return
                 }
             }
             locked = nfc.checkIfLocked()
             if (locked) {
+                showValidationResult(false)
                 Toast.makeText(this, "Tag is still locked.", Toast.LENGTH_LONG).show()
                 return
             }
@@ -169,6 +181,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             val attendeeAndConvention = tags.getTag(TagId.ATTENDEE_CONVENTION_ID)
             val signatureTag = tags.getTag(TagId.SIGNATURE)
             if (signatureTag == null) {
+                showValidationResult(false)
                 Toast.makeText(this, "Signature tag not found", Toast.LENGTH_LONG).show()
                 return
             }
@@ -177,6 +190,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             try {
                 nfcPublicKey = getNFCPublicKey()
             } catch (e: APIError) {
+                showValidationResult(false)
                 Toast.makeText(this, e.message, Toast.LENGTH_LONG).show()
                 return
             }
@@ -227,11 +241,19 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
 
             val isValid = signatureValidator.verify(signatureBytes)
 
-            if (isValid) {
-                Toast.makeText(this, "Signature is valid!", Toast.LENGTH_LONG).show()
-            } else {
-                Toast.makeText(this, "Signature is invalid!", Toast.LENGTH_LONG).show()
-            }
+            showValidationResult(isValid)
+        }
+    }
+
+    private fun showValidationResult(isValid: Boolean) {
+        runOnUiThread {
+            validationState.value = isValid
+            android.os.Handler(Looper.getMainLooper()).postDelayed({
+                // Only reset if the state hasn't been changed by a new scan
+                if (validationState.value == isValid) {
+                    validationState.value = null
+                }
+            }, 3000) // 3-second delay
         }
     }
 
@@ -314,6 +336,40 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
     }
 }
 
+@Composable
+fun ValidationResult(isValid: Boolean, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        if (isValid) {
+            Icon(
+                imageVector = Icons.Filled.CheckCircle,
+                contentDescription = "Valid Signature",
+                tint = Color.Green,
+                modifier = Modifier.size(256.dp)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Card is Valid",
+                style = MaterialTheme.typography.headlineMedium
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Filled.Error,
+                contentDescription = "Invalid Signature",
+                tint = Color.Red,
+                modifier = Modifier.size(256.dp)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Card is NOT valid",
+                style = MaterialTheme.typography.headlineMedium
+            )
+        }
+    }
+}
 
 @Preview(showBackground = true)
 @Composable

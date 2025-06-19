@@ -52,6 +52,7 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.appcompat)
+    implementation("androidx.compose.material:material-icons-extended-android:1.6.8")
     
     // Retrofit for network calls
     implementation("com.squareup.retrofit2:retrofit:2.9.0")

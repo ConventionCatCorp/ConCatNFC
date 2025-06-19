@@ -20,17 +20,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.example.concatnfc.api.JWK
 import com.example.concatnfc.ui.auth.LoginScreen
 import com.example.concatnfc.ui.theme.ConcatNFCTheme
 import com.example.concatnfc.utils.ApiClient
 import kotlinx.coroutines.runBlocking
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
+import java.security.interfaces.ECKey
+
 
 class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     private lateinit var mNfcAdapter: NfcAdapter
     private lateinit var pendingIntent: PendingIntent
     private lateinit var isLoggedIn: MutableState<Boolean>
+    private lateinit var nfc: NFC;
 
     @Composable
     fun MainContent(onLoginSuccess: () -> Unit = {}) {
@@ -108,6 +110,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         }
         if (tag.techList.contains("android.nfc.tech.MifareUltralight")) {
             var mifare = MifareUltralight.get(tag);
+            nfc = NFC(mifare);
             mifare.connect();
             while(!mifare.isConnected());
             var response: ByteArray
@@ -126,7 +129,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             var passwordString: String
             try {
                 passwordString = getPasswordForTag(uid)
-            } catch (e: PasswordError) {
+            } catch (e: APIError) {
                 if (e.responseCode == 404) {
                     Toast.makeText(this, "This tag is not registered with this convention.", Toast.LENGTH_LONG).show()
                     return
@@ -136,80 +139,52 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             }
             var password: UInt = passwordString.toUInt()
 
-            var locked = checkIfLocked(mifare)
+            var locked = nfc.checkIfLocked()
 
             if (locked) {
-                if (!unlockTag(password, mifare)) {
+                if (!nfc.unlockTag(password)) {
                     Toast.makeText(this, "Cannot unlock tag.", Toast.LENGTH_LONG).show()
                     return
                 }
             }
-            locked = checkIfLocked(mifare)
+            locked = nfc.checkIfLocked()
             if (locked) {
-                Toast.makeText(this, "Tag is locked.", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Tag is still locked.", Toast.LENGTH_LONG).show()
                 return
             }
-            Toast.makeText(this, "Tag is unlocked.", Toast.LENGTH_LONG).show()
+            val tags = nfc.readTags()
 
-/*            response = mifare.transceive(
-                byteArrayOf(
-                    0x30.toByte(),  // READ
-                    0x0a.toByte() // page address
-                )
-            )
-            //Toast.makeText(this, response.toString(), Toast.LENGTH_LONG).show();
-            response = mifare.transceive(
-                byteArrayOf(
-                    0x60.toByte(),  // READ
-                )
-            )
-            Toast.makeText(this, response.toString(), Toast.LENGTH_LONG).show();*/
+            val attendeeAndConvention = tags.getTag(TagId.ATTENDEE_CONVENTION_ID)
+            val signature = tags.getTag(TagId.SIGNATURE)
+            var nfcPublicKey: JWK
+            try {
+                nfcPublicKey = getNFCPublicKey()
+            } catch (e: APIError) {
+                Toast.makeText(this, e.message, Toast.LENGTH_LONG).show()
+                return
+            }
+            val tagsJson = tags.toJSON()
+            val jsonKeys = tagsJson.keys()
+            val map = mutableMapOf<String, Any>()
+
+            for (key in jsonKeys) {
+                map[key] = tagsJson.get(key)
+            }
+            val sortedMap = map.toSortedMap()
+            var sortedJSONString = "{"
+            for ((key, value) in sortedMap) {
+                if (key == "signature") {
+                    continue
+                }
+                sortedJSONString += "\"$key\":$value,"
+            }
+            sortedJSONString = sortedJSONString.dropLast(1)
+            sortedJSONString += "}"
+            return
         }
     }
 
-    fun UInt.toByteArrayBigEndian(): ByteArray {
-        return ByteBuffer.allocate(UInt.SIZE_BYTES)
-            .order(ByteOrder.BIG_ENDIAN)
-            .putInt(this.toInt())
-            .array()
-    }
-
-
-    fun unlockTag(password: UInt, mifare: MifareUltralight): Boolean {
-        var response: ByteArray
-        var passwordBytes = password.toByteArrayBigEndian()
-        try {
-            response = mifare.transceive(
-                byteArrayOf(
-                    0x1b.toByte(),  // PWD_AUTH
-                    passwordBytes[0],
-                    passwordBytes[1],
-                    passwordBytes[2],
-                    passwordBytes[3]
-                )
-            )
-        } catch (e: Exception) {
-            return false
-        }
-        return true
-    }
-
-    fun checkIfLocked(mifare: MifareUltralight): Boolean {
-        var response: ByteArray
-        try {
-            response = mifare.transceive(
-                byteArrayOf(
-                    0x30.toByte(),  // READ
-                    0x10.toByte() // page address
-                )
-            )
-        } catch (e: Exception) {
-            return true
-        }
-        return false
-    }
-
-    class PasswordError(val responseCode: Int, message: String) : Exception(message)
+    class APIError(val responseCode: Int, message: String) : Exception(message)
 
     fun getPasswordForTag(uid: ByteArray): String {
         // Convert byte array to hex string
@@ -230,7 +205,27 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         if (response?.isSuccessful == true) {
             return response.body()?.nfcPassword ?: "Error: No password in response"
         } else {
-            throw PasswordError(responseCode = response?.code() ?: -1, message = response?.message() ?: "Unknown error")
+            throw APIError(responseCode = response?.code() ?: -1, message = response?.message() ?: "Unknown error")
+        }
+    }
+
+    fun getNFCPublicKey(): JWK {
+        // Get base URL from preferences
+        val baseUrl = ApiClient.getBaseUrl(this)
+
+        // Make the API call
+        val response = runBlocking {
+            try {
+                ApiClient.getAuthService(baseUrl).getNfcKey()
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        if (response?.isSuccessful == true) {
+            return response.body() ?: throw APIError(response.code(), "NFC Key response body is null")
+        } else {
+            throw APIError(responseCode = response?.code() ?: -1, message = response?.message() ?: "Unknown error getting NFC Key")
         }
     }
 

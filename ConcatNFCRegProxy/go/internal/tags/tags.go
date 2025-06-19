@@ -21,8 +21,8 @@ func TagToText(tag types.Tag) (string, error) {
 			if len(tag.Data) != 8 {
 				return "", fmt.Errorf("Tag TAG_ATTENDEE_ID expected 4 bytes but got %d", len(tag.Data))
 			}
-			val := binary.BigEndian.Uint32(tag.Data)
-			val2 := binary.BigEndian.Uint32(tag.Data)
+			val := binary.BigEndian.Uint32(tag.Data[0:4])
+			val2 := binary.BigEndian.Uint32(tag.Data[4:8])
 			return fmt.Sprintf("TAG=TAG_ATTENDEE_ID UserID=%d ConventionID=%d", val, val2), nil
 		}
 	case TAG_SIGNATURE:
@@ -70,7 +70,7 @@ func TagsToRequest(tags []types.Tag) (types.CardDefinitionRequest, error) {
 		case TAG_ATTENDEE_ID:
 			{
 				if len(tag.Data) != 8 {
-					return resp, fmt.Errorf("Tag TAG_ATTENDEE_ID expected 4 bytes but got %d", len(tag.Data))
+					return resp, fmt.Errorf("Tag TAG_ATTENDEE_ID expected 8 bytes but got %d", len(tag.Data))
 				}
 				resp.AttendeeId = binary.BigEndian.Uint32(tag.Data[0:4])
 				resp.ConventionId = binary.BigEndian.Uint32(tag.Data[4:8])

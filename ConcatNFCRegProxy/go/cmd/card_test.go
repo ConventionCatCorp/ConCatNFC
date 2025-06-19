@@ -56,6 +56,10 @@ func (m *MockNFC) Lock() {
 	m.Locked = true
 }
 
+func (m *MockNFC) BeepReader() error {
+	return nil
+}
+
 func (m *MockNFC) Unlock() {
 	m.Locked = false
 }
@@ -82,7 +86,11 @@ func TestCardReadEmpty(t *testing.T) {
 	r := setupMock()
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/read?password=123&uuid="+CARD_UUID, nil)
+	body, _ := json.Marshal(types.CardDefinitionRequest{
+		Password: 123,
+		UUID:     CARD_UUID,
+	})
+	req, _ := http.NewRequest("PUT", "/read", bytes.NewBuffer(body))
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, 417, w.Code)
@@ -112,12 +120,20 @@ func TestCardWrite(t *testing.T) {
 	assert.Equal(t, 200, w.Code)
 
 	w2 := httptest.NewRecorder()
-	req2, _ := http.NewRequest("GET", "/read?password=123&uuid=HUEHUEHUENO!", nil)
+	body2, _ := json.Marshal(types.CardDefinitionRequest{
+		Password: 123,
+		UUID:     "hahahahaha",
+	})
+	req2, _ := http.NewRequest("PUT", "/read", bytes.NewBuffer(body2))
 	r.ServeHTTP(w2, req2)
 	assert.Equal(t, 403, w2.Code)
 
 	w3 := httptest.NewRecorder()
-	req3, _ := http.NewRequest("GET", "/read?password=123&uuid="+CARD_UUID, nil)
+	body3, _ := json.Marshal(types.CardDefinitionRequest{
+		Password: 123,
+		UUID:     CARD_UUID,
+	})
+	req3, _ := http.NewRequest("PUT", "/read", bytes.NewBuffer(body3))
 	r.ServeHTTP(w3, req3)
 	assert.Equal(t, 200, w3.Code)
 

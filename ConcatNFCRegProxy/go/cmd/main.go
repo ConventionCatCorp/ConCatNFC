@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"time"
 
 	"ConcatNFCRegProxy/internal/nfc"
@@ -422,56 +421,6 @@ func (h *HandlerContext) clearPassword(c *gin.Context) {
 	c.JSON(statusCode, response)
 }
 
-func (h *HandlerContext) writeTagsTest(c *gin.Context) {
-	env := h.env
-
-	env.Lock()
-	defer env.Unlock()
-
-	var insertTags []types.Tag
-	insertTags = append(insertTags, tags.NewAttendeeId(123, 0xff))
-	insertTags = append(insertTags, tags.NewAttendeeId(123, 0xff))
-	insertTags = append(insertTags, tags.NewIssuance(2))
-	insertTags = append(insertTags, tags.NewTimestamp(uint64(time.Now().Unix())))
-	insertTags = append(insertTags, tags.NewExpiration(uint64(time.Now().Unix()+3600*24)))
-	insertTags = append(insertTags, tags.NewTimestamp(uint64(time.Now().Unix())))
-
-	password := c.Query("password")
-	if password != "" {
-		passwordUint64, err := strconv.ParseUint(password, 0, 32)
-		if err != nil {
-			var response types.Response
-			response.Error = err.Error()
-			c.JSON(http.StatusBadRequest, response)
-			return
-		}
-		passwordUint32 := uint32(passwordUint64)
-		err = env.NTAG21xAuth(passwordUint32)
-		if err != nil {
-			var response types.Response
-			response.Error = "Invalid authentication " + err.Error()
-			c.JSON(http.StatusForbidden, response)
-			return
-		}
-		// Continue with your password processing here...
-	}
-
-	err := env.WriteTags(insertTags)
-	if err != nil {
-		var response types.Response
-		if env.IsAuthRequired() {
-			response.Error = "Password required"
-			c.JSON(http.StatusForbidden, response)
-			return
-		}
-		response.Error = err.Error()
-		c.JSON(http.StatusInternalServerError, response)
-		return
-	}
-	c.JSON(http.StatusOK, len(insertTags))
-
-}
-
 func (h *HandlerContext) sseHandler(c *gin.Context) {
 	// Set the headers for SSE
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
@@ -490,74 +439,6 @@ func (h *HandlerContext) sseHandler(c *gin.Context) {
 		}
 		return false
 	})
-}
-
-func (h *HandlerContext) getAllTags(c *gin.Context) {
-	env := h.env
-
-	env.Lock()
-	defer env.Unlock()
-
-	var response types.Response
-
-	if !h.env.IsReady() {
-		response.Error = "Card reader not avalible or not ready"
-		c.JSON(http.StatusInternalServerError, response)
-		return
-	}
-
-	uid, err := env.GetUUID()
-	if err != nil {
-		response.Error = err.Error()
-		c.JSON(http.StatusInternalServerError, response)
-		return
-	}
-
-	paramUuid := c.Params.ByName("uuid")
-	if paramUuid != uid {
-		response.Error = "Mismatched tag UUID"
-		c.JSON(http.StatusForbidden, response)
-		return
-	}
-
-	password := c.Query("password")
-	if password != "" {
-		passwordUint64, err := strconv.ParseUint(password, 0, 32)
-		if err != nil {
-			var response types.Response
-			response.Error = err.Error()
-			c.JSON(http.StatusBadRequest, response)
-			return
-		}
-		passwordUint32 := uint32(passwordUint64)
-		err = env.NTAG21xAuth(passwordUint32)
-		if err != nil {
-			var response types.Response
-			response.Error = "Invalid authentication " + err.Error()
-			c.JSON(http.StatusForbidden, response)
-			return
-		}
-		// Continue with your password processing here...
-	}
-
-	readTags, err := env.ReadTags()
-	if err != nil {
-		response.Error = err.Error()
-		c.JSON(http.StatusInternalServerError, response)
-		return
-	}
-	var results []string
-	for _, tag := range readTags {
-		str, err := tags.TagToText(tag)
-		if err != nil {
-			response.Error = err.Error()
-			c.JSON(http.StatusInternalServerError, response)
-			return
-		}
-		results = append(results, str)
-	}
-	response.Success = true
-	c.JSON(http.StatusOK, results)
 }
 
 func CORSMiddleware() gin.HandlerFunc {
@@ -585,22 +466,6 @@ func main() {
 		b:   b,
 	}
 
-	/*	// Start publishing messages:
-		go func() {
-			for msgId := 0; ; msgId++ {
-				message := struct {
-					Event string `json:"Event"`
-				}{
-					Event: fmt.Sprintf("ping %d", msgId),
-				}
-				jsonData, err := json.Marshal(message)
-				if err == nil {
-					b.Publish(fmt.Sprintf("data: %s\n\n", jsonData))
-				}
-				time.Sleep(1000 * time.Millisecond)
-			}
-		}()*/
-
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
@@ -616,10 +481,6 @@ func main() {
 	r.PUT("/clearpassword", handler.clearPassword)
 
 	r.GET("/events", handler.sseHandler)
-
-	//Test only, should be removed later
-	r.GET("/read/:uuid/all", handler.getAllTags)
-	r.GET("/write_tags/test", handler.writeTagsTest)
 
 	r.Run(":7070")
 

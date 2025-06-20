@@ -38,6 +38,9 @@ func (m *MockNFC) SetNTAG21xPassword(password uint32) error {
 func (m *MockNFC) IsAuthRequired() bool { return m.AuthRequired }
 
 func (m *MockNFC) NTAG21xAuth(password uint32) error {
+	if !m.AuthRequired {
+		return nil
+	}
 	if password != m.Password {
 		return errors.New("invalid password")
 	}
@@ -72,12 +75,16 @@ func (m *MockNFC) ClearNTAG21xPassword() error {
 
 func setupMock() *gin.Engine {
 	h := &HandlerContext{env: &MockNFC{}}
-	h.env.SetNTAG21xPassword(123)
 	r := gin.Default()
-	r.PUT("/read", h.readData)
+	r.Use(CORSMiddleware())
+	r.GET("/healthcheck", h.healthcheck)
 	r.GET("/uuid", h.getUUID)
 	r.POST("/write", h.writeData)
 	r.PATCH("/write", h.updateData)
+	r.PUT("/read", h.readData)
+	r.PUT("/setpassword", h.setPassword)
+	r.PUT("/clearpassword", h.clearPassword)
+	r.GET("/events", h.sseHandler)
 	return r
 }
 
@@ -182,5 +189,85 @@ func TestCardWrite(t *testing.T) {
 
 	assert.True(t, res2.Success)
 	assert.Nil(t, res2.Card)
+
+}
+
+func TestCardPassword(t *testing.T) {
+
+	r := setupMock()
+
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(types.CardDefinitionRequest{
+		UUID: CARD_UUID,
+	})
+	req, _ := http.NewRequest("PUT", "/read", bytes.NewBuffer(body))
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, 417, w.Code)
+	assert.Contains(t, w.Body.String(), "Card is empty!")
+
+	nowIunix := uint64(time.Now().Unix())
+
+	w2 := httptest.NewRecorder()
+	body2, _ := json.Marshal(types.CardDefinitionRequest{
+		AttendeeId:        123,
+		ConventionId:      32,
+		IssuanceCount:     1,
+		IssuanceTimestamp: nowIunix,
+		Expiration:        uint64(nowIunix + uint64(3600*24)),
+		Password:          1,
+		Signature:         "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ=",
+		UUID:              CARD_UUID,
+	})
+	req2, _ := http.NewRequest("POST", "/write", bytes.NewBuffer(body2))
+	r.ServeHTTP(w2, req2)
+	assert.Equal(t, 200, w2.Code)
+
+	w3 := httptest.NewRecorder()
+	body3, _ := json.Marshal(types.CardDefinitionRequest{
+		Password: 124,
+		UUID:     CARD_UUID,
+	})
+	req3, _ := http.NewRequest("PUT", "/setpassword", bytes.NewBuffer(body3))
+	r.ServeHTTP(w3, req3)
+	assert.Equal(t, 200, w3.Code)
+
+	w4 := httptest.NewRecorder()
+	body4, _ := json.Marshal(types.CardDefinitionRequest{
+		Password: 1111111,
+		UUID:     CARD_UUID,
+	})
+	req4, _ := http.NewRequest("PUT", "/read", bytes.NewBuffer(body4))
+	r.ServeHTTP(w4, req4)
+
+	assert.Equal(t, 403, w4.Code)
+
+	w5 := httptest.NewRecorder()
+	body5, _ := json.Marshal(types.CardDefinitionRequest{
+		Password: 1111111,
+		UUID:     CARD_UUID,
+	})
+	req5, _ := http.NewRequest("PUT", "/clearpassword", bytes.NewBuffer(body5))
+	r.ServeHTTP(w5, req5)
+	assert.Equal(t, 500, w5.Code)
+	assert.Contains(t, w5.Body.String(), "invalid password")
+
+	w6 := httptest.NewRecorder()
+	body6, _ := json.Marshal(types.CardDefinitionRequest{
+		Password: 124,
+		UUID:     CARD_UUID,
+	})
+	req6, _ := http.NewRequest("PUT", "/clearpassword", bytes.NewBuffer(body6))
+	r.ServeHTTP(w6, req6)
+	assert.Equal(t, 200, w6.Code)
+
+	w7 := httptest.NewRecorder()
+	body7, _ := json.Marshal(types.CardDefinitionRequest{
+		UUID: CARD_UUID,
+	})
+	req7, _ := http.NewRequest("PUT", "/read", bytes.NewBuffer(body7))
+	r.ServeHTTP(w7, req7)
+
+	assert.Equal(t, 200, w7.Code)
 
 }

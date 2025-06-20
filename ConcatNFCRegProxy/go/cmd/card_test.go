@@ -150,4 +150,37 @@ func TestCardWrite(t *testing.T) {
 	assert.Equal(t, "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ=", res.Card.Signature)
 	//Should not return a password
 	assert.Equal(t, uint32(0), res.Card.Password)
+
+	body4, _ := json.Marshal(types.CardDefinitionRequest{
+		ConventionId: 33,
+		Password:     123,
+		UUID:         CARD_UUID,
+	})
+	req4, _ := http.NewRequest("PATCH", "/write", bytes.NewBuffer(body4))
+
+	w4 := httptest.NewRecorder()
+	r.ServeHTTP(w4, req4)
+
+	assert.Equal(t, 400, w4.Code)
+
+	body5, _ := json.Marshal(types.CardDefinitionRequest{
+		ConventionId:      33,
+		Password:          123,
+		AttendeeId:        124,
+		IssuanceTimestamp: nowIunix + 3,
+		Expiration:        uint64(nowIunix + uint64(3600*22)),
+		Signature:         "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ=",
+		UUID:              CARD_UUID,
+	})
+	req5, _ := http.NewRequest("PATCH", "/write", bytes.NewBuffer(body5))
+	w5 := httptest.NewRecorder()
+	r.ServeHTTP(w5, req5)
+	assert.Equal(t, 200, w5.Code)
+	var res2 types.Response
+	err2 := json.Unmarshal(w5.Body.Bytes(), &res2)
+	assert.NoError(t, err2)
+
+	assert.True(t, res2.Success)
+	assert.Nil(t, res2.Card)
+
 }

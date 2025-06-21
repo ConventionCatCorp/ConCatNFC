@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.getValue
@@ -50,12 +51,14 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     private lateinit var isLoggedIn: MutableState<Boolean>
     private lateinit var nfc: NFC;
     private lateinit var validationState: MutableState<Boolean?>
+    private lateinit var waitCardState: MutableState<Boolean?>
 
     @Composable
     fun MainContent(onLoginSuccess: () -> Unit = {}) {
         val context = LocalContext.current
         isLoggedIn = remember { mutableStateOf(ApiClient.getAuthToken(context) != null) }
         validationState = remember { mutableStateOf<Boolean?>(null) }
+        waitCardState = remember { mutableStateOf<Boolean?>(null) }
 
         Surface(
             modifier = Modifier.fillMaxSize(),
@@ -74,9 +77,16 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                         when (validationState.value) {
                             true -> ValidationResult(isValid = true)
                             false -> ValidationResult(isValid = false)
-                            null -> Greeting(
-                                name = "Concat NFC",
-                            )
+                            null -> {
+                                if (waitCardState.value == true){
+                                    PleaseWaitCardRead()
+                                }else{
+                                    Greeting(
+                                        name = "Concat NFC",
+                                    )
+                                }
+
+                            }
                         }
                     }
                 }
@@ -112,8 +122,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             }
         }
 
-        mNfcAdapter.disableReaderMode(this)
-        mNfcAdapter.disableForegroundDispatch(this)
+        //mNfcAdapter.disableReaderMode(this)
+        //mNfcAdapter.disableForegroundDispatch(this)
 
         enableEdgeToEdge()
         setContent {
@@ -139,6 +149,9 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             Looper.prepare()
         }
         if (tag.techList.contains("android.nfc.tech.MifareUltralight")) {
+
+            showPleaseNoRemoveCard()
+
             var mifare = MifareUltralight.get(tag);
             nfc = NFC(mifare);
             mifare.connect();
@@ -257,6 +270,19 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         }
     }
 
+    private fun showPleaseNoRemoveCard() {
+        runOnUiThread {
+            waitCardState.value = true
+            android.os.Handler(Looper.getMainLooper()).postDelayed({
+                // Only reset if the state hasn't been changed by a new scan
+                if (waitCardState.value == true) {
+                    waitCardState.value = null
+                }
+            }, 3000) // 3-second delay
+        }
+    }
+
+
     class APIError(val responseCode: Int, message: String) : Exception(message)
 
     fun getPasswordForTag(uid: ByteArray): String {
@@ -369,6 +395,29 @@ fun ValidationResult(isValid: Boolean, modifier: Modifier = Modifier) {
             )
         }
     }
+}
+
+@Composable
+fun PleaseWaitCardRead() {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+
+            Icon(
+                imageVector = Icons.Filled.Warning,
+                contentDescription = "Please don't remove the card",
+                tint = Color(0xFFFFA500),
+                modifier = Modifier.size(256.dp)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Please don't remove the card",
+                style = MaterialTheme.typography.headlineMedium
+            )
+        }
+
 }
 
 @Preview(showBackground = true)

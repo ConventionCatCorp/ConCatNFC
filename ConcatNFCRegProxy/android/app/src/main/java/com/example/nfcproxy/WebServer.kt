@@ -1,5 +1,6 @@
 package com.example.nfcproxy
 
+import android.util.Base64
 import android.util.Log
 import io.ktor.application.*
 import io.ktor.features.*
@@ -18,8 +19,8 @@ fun Application.module(nfcInterface: NFCInterface) {
     data class CardDefinitionRequest(
         val attendeeId: UInt? = null,
         val conventionId: UInt? = null,
-        val issuanceCount: UInt? = null,
-        val issuanceTimestamp: ULong? = null,
+        val issuance: UInt? = null,
+        val timestamp: ULong? = null,
         val expiration: ULong? = null,
         val signature: String? = null,
         val password: UInt? = null,
@@ -86,9 +87,18 @@ fun Application.module(nfcInterface: NFCInterface) {
                 }
                 Log.d("WebServer", "Reading tags")
                 val tags = nfcInterface.readTags()
-                val jsonTags = tags.toJSON().toString()
-                call.respondText(jsonTags, ContentType.Application.Json)
+                val response = Response(card = CardDefinitionRequest(
+                    attendeeId = tags.getAttendeeAndConvention().getOrElse { throw it }.first,
+                    conventionId = tags.getAttendeeAndConvention().getOrElse { throw it }.second,
+                    issuance = tags.getIssuance().getOrElse { throw it }.toUInt(),
+                    timestamp = tags.getTimestamp().getOrElse { throw it },
+                    expiration = tags.getExpiration().getOrNull(),
+                    signature = Base64.encodeToString(tags.getSignature().getOrElse { throw it }, Base64.NO_WRAP)
+                ), success = true)
+                call.respond(response)
             } catch (e: NFCInterfaceException) {
+                call.respond(HttpStatusCode.InternalServerError, "NFC Error: ${e.message}")
+            } catch (e: Exception) {
                 call.respond(HttpStatusCode.InternalServerError, "Error: ${e.message}")
             }
         }

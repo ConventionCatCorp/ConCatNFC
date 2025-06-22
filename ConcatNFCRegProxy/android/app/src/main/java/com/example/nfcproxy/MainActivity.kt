@@ -13,10 +13,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 
 import com.example.nfcproxy.ui.theme.NFCProxyTheme
+import io.ktor.application.Application
+import io.ktor.server.engine.*
+import io.ktor.server.netty.*
 
 class MainActivity : ComponentActivity() {
     private val TAG: String = "MainActivity"
     private var mNfcInterface: NFCInterface? = null
+    private lateinit var server: NettyApplicationEngine
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,7 +38,13 @@ class MainActivity : ComponentActivity() {
         }
 
         mNfcInterface = ACSNFCInterface(this)
+        startServer()
     }
+    private fun startServer() {
+        server = embeddedServer(Netty, host = "0.0.0.0", port = 7070, module = { (Application::module)(mNfcInterface!!) })
+        server.start()
+    }
+
 }
 
 @Composable

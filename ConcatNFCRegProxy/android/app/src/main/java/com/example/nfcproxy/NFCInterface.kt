@@ -3,79 +3,19 @@ package com.example.nfcproxy
 import android.content.Context
 import android.util.SparseArray
 import org.json.JSONObject
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import android.util.Base64
 
-abstract class NFCInterface {
-    constructor(ctx: Context) {
-        mContext = ctx
-    }
-    val tagMemory: SparseArray<ByteArray> = SparseArray<ByteArray>() // Store data read from tag
-
-    var mContext: Context
-    var bytePosition: Int = 0
-    val tagStartPage = 0x10
-
-    // This function reads exactly one byte from the correct byte position
-     fun readByte(): Byte {
-        val thisPage = readPage(tagStartPage + bytePosition / 4)
-        val thisByte = thisPage[bytePosition % 4]
-        bytePosition++
-        return thisByte
-     }
-
-    fun readBytes(length: Int): ByteArray {
-        val data = ByteArray(length)
-        for (i in 0..length-1) {
-            data[i] = readByte()
-        }
-        return data
-    }
-
-    // This function should read at least 1 page starting at pageAddress. Can read more, but must
-    // be in multiples of 4
-    abstract fun readPages(pageAddress: Int): ByteArray
-
-    // This function reads a page (4 bytes) from the tag.
-    fun readPage(pageAddress: Int): ByteArray {
-        var data = tagMemory.get(pageAddress)
-        if (data == null) {
-            val readData = readPages(pageAddress)
-            for (i in 0..readData.size-1 step 4) {
-                tagMemory.put(pageAddress + i / 4, readData.slice(i..i + 3).toByteArray())
-            }
-            data = tagMemory.get(pageAddress)
-        }
-        return data
-    }
-
-    fun readTags(): TagArray {
-        val tags = TagArray()
-        while (true) {
-            val tag = readByte()
-            if (tag == 0x0.toByte()) {
-                break
-            }
-            val length = readByte()
-            val data = readBytes(length.toInt())
-            tags.addTag(Tag(tag, data))
-        }
-        return tags
-    }
+class NFCInterfaceException: Exception {
+    constructor(message: String) : super(message)
 }
 
-data class DoubleUint(val first: UInt, val second: UInt)
-
-enum class TagId(val id: Byte) {
-    ATTENDEE_CONVENTION_ID(0x01.toByte()),
-    SIGNATURE(0x02.toByte()),
-    ISSUANCE(0x03.toByte()),
-    TIMESTAMP(0x04.toByte()),
-    EXPIRATION(0x05.toByte());
-
-    companion object {
-        fun fromId(id: Byte): TagId? {
-            return entries.find { it.id == id }
-        }
-    }
+fun UInt.toByteArray(byteOrder: ByteOrder = ByteOrder.BIG_ENDIAN): ByteArray {
+    return ByteBuffer.allocate(UInt.SIZE_BYTES)
+        .order(byteOrder)
+        .putInt(this.toInt()) // Convert UInt to Int for ByteBuffer's putInt
+        .array()
 }
 
 fun ByteArray.toULongLe(): ULong {
@@ -112,6 +52,178 @@ fun ByteArray.toUIntBe(): UInt {
         result = result or ((this[i].toUInt() and 0xFFu) shl ((3 - i) * 8))
     }
     return result
+}
+
+abstract class NFCInterface {
+    constructor(ctx: Context) {
+        mContext = ctx
+    }
+    val tagMemory: SparseArray<ByteArray> = SparseArray<ByteArray>() // Store data read from tag
+
+    var mContext: Context
+    var bytePosition: Int = 0
+    val tagStartPage = 0x10
+    var versionInfo: ByteArray? = null
+
+    abstract fun GetUUID(): String
+
+    fun GetVersion(): ByteArray {
+        if (versionInfo == null) {
+            val response = transmitVendorCommand(bytes(0x60)) // Get version info
+            if (response[0] != 0x0.toByte()) {
+                throw NFCInterfaceException("Vendor command failed with error ${response[0]}")
+            }
+            versionInfo = response.copyOfRange(1, response.size)
+        }
+        return versionInfo!!
+    }
+
+    abstract fun transmitAndValidate(command: ByteArray): ByteArray
+
+    fun transmitVendorCommand(command: ByteArray): ByteArray {
+        var fullCommand = bytes(0xff, 0x00, 0x00, 0x00, 2 + command.size, 0xd4, 0x42)
+        fullCommand += command
+        val response = transmitAndValidate(fullCommand)
+        if (response.size < 3) {
+            throw NFCInterfaceException("response too short")
+        }
+        if (response[0] != 0xd5.toByte() || response[1] != 0x43.toByte()) {
+            throw NFCInterfaceException("Unexpected response from Vendor command. got ${response.copyOfRange(0, 2).toHexString()}")
+        }
+        return response.copyOfRange(2, response.size)
+    }
+
+    // This function reads exactly one byte from the correct byte position
+     fun readByte(): Byte {
+        val thisPage = readPage(tagStartPage + bytePosition / 4)
+        val thisByte = thisPage[bytePosition % 4]
+        bytePosition++
+        return thisByte
+     }
+
+    fun readBytes(length: Int): ByteArray {
+        val data = ByteArray(length)
+        for (i in 0..length-1) {
+            data[i] = readByte()
+        }
+        return data
+    }
+
+    // This function should read at least 1 page starting at pageAddress. Can read more, but must
+    // be in multiples of 4
+    abstract fun readPages(pageAddress: Int): ByteArray
+
+    // This function reads a page (4 bytes) from the tag.
+    fun readPage(pageAddress: Int): ByteArray {
+        var data = tagMemory.get(pageAddress)
+        if (data == null) {
+            val readData = readPages(pageAddress)
+            for (i in 0..readData.size-1 step 4) {
+                tagMemory.put(pageAddress + i / 4, readData.slice(i..i + 3).toByteArray())
+            }
+            data = tagMemory.get(pageAddress)
+        }
+        return data
+    }
+
+    fun readTags(): TagArray {
+        val tags = TagArray()
+        bytePosition = 0
+        while (true) {
+            val tag = readByte()
+            if (tag == 0x0.toByte()) {
+                break
+            }
+            val length = readByte()
+            val data = readBytes(length.toInt())
+            tags.addTag(Tag(tag, data))
+        }
+        return tags
+    }
+
+    fun parseNtagVersion(ver: Byte, cardInfo: CardInfo): CardInfo {
+        when (ver) {
+            0x0f.toByte() -> {
+                cardInfo.Memory = 144
+                cardInfo.ProductName = "NTAG213"
+            }
+
+            0x11.toByte() -> {
+                cardInfo.Memory = 504
+                cardInfo.ProductName = "NTAG215"
+            }
+
+            0x13.toByte() -> {
+                cardInfo.Memory = 888
+                cardInfo.ProductName = "NTAG216"
+            }
+
+            else -> throw NFCInterfaceException("Unsupported card")
+        }
+        return cardInfo
+    }
+
+    fun getCardInfo(): CardInfo {
+        var cardInfo = CardInfo(null, null, null)
+        versionInfo = GetVersion()
+        if (versionInfo == null) {
+            throw NFCInterfaceException("Failed to get version info")
+        }
+        if (versionInfo!!.size < 8) {
+            throw NFCInterfaceException("Unsupported card")
+        }
+        when (versionInfo!![1]) {
+            0x04.toByte() -> cardInfo.Manufacturer = "NXP Semiconductors"
+            else -> throw NFCInterfaceException("Unsupported card")
+        }
+        if (versionInfo!![2] != 0x04.toByte() || versionInfo!![3] != 0x02.toByte() || versionInfo!![4] != 0x01.toByte()) {
+            throw NFCInterfaceException("Unsupported card")
+        }
+        when (versionInfo!![5]) {
+            0x0.toByte() -> {
+                cardInfo = parseNtagVersion(versionInfo!![6], cardInfo)
+            }
+        }
+        return cardInfo
+    }
+
+    fun NTAG21xAuth(password: UInt) {
+        val ci = getCardInfo()
+        if (!ci.Manufacturer!!.startsWith("NXP") || !ci.ProductName!!.startsWith("NTAG21")) {
+            throw NFCInterfaceException("Only NXP NTAG21x supports password")
+        }
+        var command = bytes(0x1b)
+        command += password.toByteArray()
+        val response = transmitVendorCommand(command)
+        if (response.size < 1) {
+            throw NFCInterfaceException("response too short")
+        }
+        if (response[0] != 0x0.toByte()) {
+            throw NFCInterfaceException("Authentication failed")
+        }
+    }
+}
+
+data class DoubleUint(val first: UInt, val second: UInt)
+
+data class CardInfo (
+    var Manufacturer: String?,
+    var ProductName: String?,
+    var Memory: Int?
+)
+
+enum class TagId(val id: Byte) {
+    ATTENDEE_CONVENTION_ID(0x01.toByte()),
+    SIGNATURE(0x02.toByte()),
+    ISSUANCE(0x03.toByte()),
+    TIMESTAMP(0x04.toByte()),
+    EXPIRATION(0x05.toByte());
+
+    companion object {
+        fun fromId(id: Byte): TagId? {
+            return entries.find { it.id == id }
+        }
+    }
 }
 
 class Tag(val id: Byte, val data: ByteArray) {
@@ -245,9 +357,14 @@ class TagArray {
                         .second
                     )
                 }
-                TagId.SIGNATURE -> json.put("signature", tag.getTagValueBytes()
-                    .getOrElse { throw it }
-                )
+                TagId.SIGNATURE -> {
+                    val signature = tag.getTagValueBytes()
+                        .getOrElse { throw it }
+                    json.put(
+                        "signature", Base64.encodeToString(
+                            signature, Base64.NO_WRAP)
+                    )
+                }
                 TagId.ISSUANCE -> json.put("issuanceCount", tag.getTagValueULong()
                     .getOrElse { throw it }
                 )

@@ -19,6 +19,9 @@ fun ByteArray.toHexString(): String {
     return joinToString("") { "%02x".format(it) }
 }
 
+fun bytes(vararg values: Int) = ByteArray(values.size) { i -> values[i].toByte() }
+
+
 class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
     private var mManager: UsbManager? = null
     private var mReader: Reader? = null
@@ -26,7 +29,9 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
     private val ACTION_USB: String = "com.example.nfcproxy.USB"
     private var mPermissionIntent: PendingIntent? = null
     private var mCardPresent: Boolean = false
+    private var mCardSupported: Boolean = false
     private var mAtr: ByteArray? = null
+    private val OPERATION_GET_SUPPORTED_CARD_SIGNATURE = bytes(0x3B, 0x8F, 0x80, 0x1, 0x80, 0x4F, 0xC, 0xA0, 0x0, 0x0, 0x3, 0x6, 0x3, 0x0, 0x3)
     private val stateStrings: Array<String?> = arrayOf<String?>(
         "Unknown", "Absent",
         "Present", "Swallowed", "Powered", "Negotiable", "Specific"
@@ -121,6 +126,18 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
                     Reader.PROTOCOL_T1
                 )
                 Log.d(TAG, "Active protocol: " + activeProtocol)
+                if (mAtr == null) {
+                    mCardSupported = false
+                    return
+                }
+                // Check for supported card
+                if (mAtr!!.copyOfRange(0, OPERATION_GET_SUPPORTED_CARD_SIGNATURE.size).contentEquals(
+                    OPERATION_GET_SUPPORTED_CARD_SIGNATURE)) {
+                    mCardSupported = true
+                } else {
+                    mCardSupported = false
+                }
+
             } else {
                 mCardPresent = false
                 Log.d(TAG, "Card removed")
@@ -128,7 +145,33 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
         }
     }
 
+    override fun transmitAndValidate(command: ByteArray): ByteArray {
+        if (!mCardPresent || !mCardSupported) {
+            throw NFCInterfaceException("Card not present or not supported")
+        }
+        var response = ByteArray(256)
+
+        // Transmit APDU
+        val responseLength = mReader!!.transmit(
+            0,
+            command, command.size, response,
+            response.size
+        )
+        if (responseLength < 2 || response[responseLength - 2] != 0x90.toByte()) {
+            throw NFCInterfaceException("Invalid response")
+        }
+        return response.copyOfRange(0, responseLength - 2)
+    }
+
+    override fun GetUUID(): String {
+        val response = transmitAndValidate(bytes(0xFF, 0xCA, 0x00, 0x00, 0x00))
+        return response.toHexString()
+    }
+
     override fun readPages(pageAddress: Int): ByteArray {
+        if (!mCardPresent || !mCardSupported) {
+            throw NFCInterfaceException("Card not present or not supported")
+        }
         val command = byteArrayOf(0x30, pageAddress.toByte())
         var response = ByteArray(65538)
 
@@ -139,6 +182,12 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
             response.size
         )
         return response.copyOfRange(0, responseLength)
+/*
+        // I don't know why this is not working...
+        val command = bytes(0xff, 0xb0, 0x00, pageAddress, 0x10)
+        val response = transmitAndValidate(command)
+        return response.copyOfRange(0, response.size)
+*/
     }
 
     init {

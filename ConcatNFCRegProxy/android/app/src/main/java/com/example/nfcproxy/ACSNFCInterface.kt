@@ -146,7 +146,7 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
         }
     }
 
-    override fun transmitAndValidate(command: ByteArray): ByteArray {
+    override fun transmitAndValidate(command: ByteArray, validate: Boolean): ByteArray {
         if (!getCardPresent() || !mCardSupported) {
             throw NFCInterfaceException("Card not present or not supported")
         }
@@ -158,10 +158,14 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
             command, command.size, response,
             response.size
         )
-        if (responseLength < 2 || response[responseLength - 2] != 0x90.toByte()) {
-            throw NFCInterfaceException("Invalid response")
+        if (validate) {
+            if (responseLength < 2 || response[responseLength - 2] != 0x90.toByte()) {
+                throw NFCInterfaceException("Invalid response")
+            }
+            return response.copyOfRange(0, responseLength - 2)
+        } else {
+            return response.copyOfRange(0, responseLength)
         }
-        return response.copyOfRange(0, responseLength - 2)
     }
 
     override fun GetUUID(): String {

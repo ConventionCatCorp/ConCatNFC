@@ -114,7 +114,7 @@ abstract class NFCInterface {
         return versionInfo!!
     }
 
-    abstract fun transmitAndValidate(command: ByteArray): ByteArray
+    abstract fun transmitAndValidate(command: ByteArray, validate: Boolean = true): ByteArray
 
     fun transmitVendorCommand(command: ByteArray): ByteArray {
         var fullCommand = bytes(0xff, 0x00, 0x00, 0x00, 2 + command.size, 0xd4, 0x42)
@@ -127,6 +127,13 @@ abstract class NFCInterface {
             throw NFCInterfaceException("Unexpected response from Vendor command. got ${response.copyOfRange(0, 2).toHexString()}")
         }
         return response.copyOfRange(2, response.size)
+    }
+
+    fun resetCard() {
+        val command = bytes(0x50, 0x00)
+        transmitAndValidate(command, false)
+        tagMemory.clear()
+        bytePosition = 0
     }
 
     // This function reads exactly one byte from the correct byte position

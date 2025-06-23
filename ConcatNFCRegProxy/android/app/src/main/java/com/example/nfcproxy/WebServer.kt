@@ -134,6 +134,7 @@ fun Application.module(nfcInterface: NFCInterface) {
                 var tags: TagArray
                 try {
                     tags = nfcInterface.readTags()
+                    nfcInterface.resetCard()
                 } catch (e: NFCInterfaceException) {
                     if (e.message!!.startsWith("Failed to read page")) {
                         call.respond(HttpStatusCode.Forbidden, Response(error = e.message, success = false))

@@ -65,11 +65,25 @@ abstract class NFCInterface {
 
     var mContext: Context
     var mReaderOpened: Boolean = false
+    private var mCardPresent: Boolean = false
+    var mCardSupported: Boolean = false
     var bytePosition: Int = 0
     val tagStartPage = 0x10
     var versionInfo: ByteArray? = null
 
     private var eventListener: (suspend (String) -> Unit)? = null
+
+    fun setCardPresent(cardPresent: Boolean) {
+        mCardPresent = cardPresent
+        if (!mCardPresent) {
+            tagMemory.clear()
+            bytePosition = 0
+        }
+    }
+
+    fun getCardPresent(): Boolean {
+        return mCardPresent
+    }
 
     fun setEventListener(listener: suspend (String) -> Unit) {
         this.eventListener = listener
@@ -144,6 +158,9 @@ abstract class NFCInterface {
                 tagMemory.put(pageAddress + i / 4, readData.slice(i..i + 3).toByteArray())
             }
             data = tagMemory.get(pageAddress)
+        }
+        if (data == null) {
+            throw NFCInterfaceException("Failed to read page $pageAddress")
         }
         return data
     }

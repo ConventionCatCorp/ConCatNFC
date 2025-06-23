@@ -28,8 +28,6 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
     private val TAG: String = "ACSNFCInterface"
     private val ACTION_USB: String = "com.example.nfcproxy.USB"
     private var mPermissionIntent: PendingIntent? = null
-    private var mCardPresent: Boolean = false
-    private var mCardSupported: Boolean = false
     private var mAtr: ByteArray? = null
     private val OPERATION_GET_SUPPORTED_CARD_SIGNATURE = bytes(0x3B, 0x8F, 0x80, 0x1, 0x80, 0x4F, 0xC, 0xA0, 0x0, 0x0, 0x3, 0x6, 0x3, 0x0, 0x3)
     private val stateStrings: Array<String?> = arrayOf<String?>(
@@ -101,8 +99,7 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
                 currState = Reader.CARD_UNKNOWN
             }
             if (currState == Reader.CARD_PRESENT) {
-                sendEvent("Card present")
-                mCardPresent = true
+                setCardPresent(true)
                 Log.d(TAG, "Card present")
 
                 try {
@@ -140,17 +137,17 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
                 } else {
                     mCardSupported = false
                 }
-
+                sendEvent("Card present")
             } else {
                 sendEvent("Card NOT present")
-                mCardPresent = false
+                setCardPresent(false)
                 Log.d(TAG, "Card removed")
             }
         }
     }
 
     override fun transmitAndValidate(command: ByteArray): ByteArray {
-        if (!mCardPresent || !mCardSupported) {
+        if (!getCardPresent() || !mCardSupported) {
             throw NFCInterfaceException("Card not present or not supported")
         }
         var response = ByteArray(256)
@@ -173,7 +170,7 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
     }
 
     override fun readPages(pageAddress: Int): ByteArray {
-        if (!mCardPresent || !mCardSupported) {
+        if (!getCardPresent() || !mCardSupported) {
             throw NFCInterfaceException("Card not present or not supported")
         }
         val command = byteArrayOf(0x30, pageAddress.toByte())

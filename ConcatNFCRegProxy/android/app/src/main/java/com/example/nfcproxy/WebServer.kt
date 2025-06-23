@@ -2,22 +2,22 @@ package com.example.nfcproxy
 
 import android.util.Base64
 import android.util.Log
+
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
-import io.ktor.server.application.Application
-import io.ktor.server.sse.*
-import io.ktor.server.application.install
+import io.ktor.server.application.*
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
+import io.ktor.server.routing.options
 import io.ktor.server.routing.put
 import io.ktor.server.routing.routing
+import io.ktor.server.sse.*
 import io.ktor.sse.ServerSentEvent
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -64,8 +64,15 @@ fun Application.module(nfcInterface: NFCInterface) {
         val uuid: String? = null
     )
 
-    install(SSE)
+    // Manually handle CORS for all requests since the plugin is not working reliably.
+    intercept(ApplicationCallPipeline.Call) {
+        call.response.headers.append("Access-Control-Allow-Origin", "*")
+        call.response.headers.append("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization")
+        call.response.headers.append("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        proceed()
+    }
 
+    install(SSE)
     install(ContentNegotiation) {
         json(Json {
             prettyPrint = false
@@ -75,6 +82,11 @@ fun Application.module(nfcInterface: NFCInterface) {
     }
 
     routing {
+        // Manually handle OPTIONS requests to work around plugin issue
+        options("{path...}") {
+            call.respond(HttpStatusCode.OK)
+        }
+
         sse("/events") {
             Log.d("WebServer", "SSE connected")
             SseEventBus.events.collectLatest { event ->
@@ -83,19 +95,23 @@ fun Application.module(nfcInterface: NFCInterface) {
             Log.d("WebServer", "SSE Done")
         }
         get("/uuid") {
+            Log.d("WebServer", "Getting UUID")
             try {
                 val uuid = nfcInterface.GetUUID()
                 val response = Response(uuid = uuid, success = true)
-                launch {
-                    SseEventBus.sendEvent("New UUID read: $uuid")
-                }
                 call.respond(response)
+                Log.d("WebServer", "UUID done")
             } catch (e: NFCInterfaceException) {
+                Log.d("WebServer", "UUID NFC error: ${e.message}")
+                call.respond(HttpStatusCode.InternalServerError, "NFC Error: ${e.message}")
+            } catch (e: Exception) {
+                Log.e("WebServer", "UUID error: ${e.message}")
+                Log.e("WebServer", e.stackTraceToString())
                 call.respond(HttpStatusCode.InternalServerError, "Error: ${e.message}")
-
             }
         }
         put("/read") {
+            Log.d("WebServer", "Processing read")
             try {
                 val payload = call.receive<CardReadSetPasswordRequest>()
                 if (payload.uuid == null) {
@@ -115,7 +131,17 @@ fun Application.module(nfcInterface: NFCInterface) {
                     nfcInterface.NTAG21xAuth(payload.password)
                 }
                 Log.d("WebServer", "Reading tags")
-                val tags = nfcInterface.readTags()
+                var tags: TagArray
+                try {
+                    tags = nfcInterface.readTags()
+                } catch (e: NFCInterfaceException) {
+                    if (e.message!!.startsWith("Failed to read page")) {
+                        call.respond(HttpStatusCode.Forbidden, Response(error = e.message, success = false))
+                        return@put
+                    }
+                    call.respond(HttpStatusCode.InternalServerError, Response(error = e.message, success = false))
+                    return@put
+                }
                 val response = Response(card = CardDefinitionRequest(
                     attendeeId = tags.getAttendeeAndConvention().getOrElse { throw it }.first,
                     conventionId = tags.getAttendeeAndConvention().getOrElse { throw it }.second,
@@ -125,10 +151,13 @@ fun Application.module(nfcInterface: NFCInterface) {
                     signature = Base64.encodeToString(tags.getSignature().getOrElse { throw it }, Base64.NO_WRAP)
                 ), success = true)
                 call.respond(response)
+                Log.d("WebServer", "read success")
             } catch (e: NFCInterfaceException) {
                 call.respond(HttpStatusCode.InternalServerError, "NFC Error: ${e.message}")
+                Log.e("WebServer", "NFC Error: ${e.message}")
             } catch (e: Exception) {
                 call.respond(HttpStatusCode.InternalServerError, "Error: ${e.message}")
+                Log.e("WebServer", "Error: ${e.message}")
             }
         }
     }

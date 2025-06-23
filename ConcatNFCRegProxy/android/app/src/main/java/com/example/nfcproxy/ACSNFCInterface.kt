@@ -77,7 +77,9 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
                         return
                     }
                     Log.d(TAG, "Device detached: " + device.getDeviceName())
+                    sendEvent("Reader error")
                     mReader?.close()
+                    mReaderOpened = false
                 }
             }
         }
@@ -99,6 +101,7 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
                 currState = Reader.CARD_UNKNOWN
             }
             if (currState == Reader.CARD_PRESENT) {
+                sendEvent("Card present")
                 mCardPresent = true
                 Log.d(TAG, "Card present")
 
@@ -139,6 +142,7 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
                 }
 
             } else {
+                sendEvent("Card NOT present")
                 mCardPresent = false
                 Log.d(TAG, "Card removed")
             }
@@ -235,6 +239,8 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
 
             try {
                 mReader?.open(params[0])
+                mReaderOpened = true
+
             } catch (e: Exception) {
                 result = e
             }

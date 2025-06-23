@@ -6,6 +6,9 @@ import org.json.JSONObject
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import android.util.Base64
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class NFCInterfaceException: Exception {
     constructor(message: String) : super(message)
@@ -61,9 +64,28 @@ abstract class NFCInterface {
     val tagMemory: SparseArray<ByteArray> = SparseArray<ByteArray>() // Store data read from tag
 
     var mContext: Context
+    var mReaderOpened: Boolean = false
     var bytePosition: Int = 0
     val tagStartPage = 0x10
     var versionInfo: ByteArray? = null
+
+    private var eventListener: (suspend (String) -> Unit)? = null
+
+    fun setEventListener(listener: suspend (String) -> Unit) {
+        this.eventListener = listener
+        if (!mReaderOpened) {
+            sendEvent("Reader error")
+        }
+    }
+
+    protected fun sendEvent(event: String) {
+        eventListener?.let {
+            CoroutineScope(Dispatchers.IO).launch {
+                val jsonEvent = "{\"Event\":\"$event\"}"
+                it(jsonEvent)
+            }
+        }
+    }
 
     abstract fun GetUUID(): String
 

@@ -2,19 +2,36 @@ package com.example.nfcproxy
 
 import android.util.Base64
 import android.util.Log
-import io.ktor.application.*
-import io.ktor.features.*
-import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
-import io.ktor.request.receive
-import io.ktor.routing.*
-import io.ktor.response.*
-import io.ktor.serialization.json
-import kotlinx.serialization.json.Json
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.Application
+import io.ktor.server.sse.*
+import io.ktor.server.application.install
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.request.receive
+import io.ktor.server.response.respond
+import io.ktor.server.routing.get
+import io.ktor.server.routing.put
+import io.ktor.server.routing.routing
+import io.ktor.sse.ServerSentEvent
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
+object SseEventBus {
+    private val _events = MutableSharedFlow<String>(replay = 1)
+    val events = _events.asSharedFlow()
+
+    suspend fun sendEvent(event: String) {
+        _events.emit(event)
+    }
+}
 
 fun Application.module(nfcInterface: NFCInterface) {
+    nfcInterface.setEventListener(SseEventBus::sendEvent)
     @Serializable
     data class CardDefinitionRequest(
         val attendeeId: UInt? = null,
@@ -47,6 +64,8 @@ fun Application.module(nfcInterface: NFCInterface) {
         val uuid: String? = null
     )
 
+    install(SSE)
+
     install(ContentNegotiation) {
         json(Json {
             prettyPrint = false
@@ -56,10 +75,20 @@ fun Application.module(nfcInterface: NFCInterface) {
     }
 
     routing {
+        sse("/events") {
+            Log.d("WebServer", "SSE connected")
+            SseEventBus.events.collectLatest { event ->
+                send(ServerSentEvent(event))
+            }
+            Log.d("WebServer", "SSE Done")
+        }
         get("/uuid") {
             try {
                 val uuid = nfcInterface.GetUUID()
                 val response = Response(uuid = uuid, success = true)
+                launch {
+                    SseEventBus.sendEvent("New UUID read: $uuid")
+                }
                 call.respond(response)
             } catch (e: NFCInterfaceException) {
                 call.respond(HttpStatusCode.InternalServerError, "Error: ${e.message}")

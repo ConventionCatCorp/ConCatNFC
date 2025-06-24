@@ -85,89 +85,95 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
 
     val stateChangeListener = object : OnStateChangeListener {
         override fun onStateChange(slotNum: Int, prevState: Int, currState: Int) {
-            var prevState = prevState
-            var currState = currState
-            if (prevState < Reader.CARD_UNKNOWN
-                || prevState > Reader.CARD_SPECIFIC
-            ) {
-                prevState = Reader.CARD_UNKNOWN
-            }
-
-            if (currState < Reader.CARD_UNKNOWN
-                || currState > Reader.CARD_SPECIFIC
-            ) {
-                currState = Reader.CARD_UNKNOWN
-            }
-            if (currState == Reader.CARD_PRESENT) {
-                setCardPresent(true)
-                Log.d(TAG, "Card present")
-
-                try {
-                    mAtr = mReader!!.power(slotNum, Reader.CARD_WARM_RESET)
-                    mAtr?.let { Log.d(TAG, "ATR:" + it.toHexString()) }
-                } catch (e: java.lang.Exception) {
-                    Log.d(TAG, e.toString())
+            synchronized(this){
+                var prevState = prevState
+                var currState = currState
+                if (prevState < Reader.CARD_UNKNOWN
+                    || prevState > Reader.CARD_SPECIFIC
+                ) {
+                    prevState = Reader.CARD_UNKNOWN
                 }
 
-                try {
-                    // Get ATR
-
-                    Log.d(TAG, "Slot " + slotNum + ": Getting ATR...")
-                    mAtr = mReader!!.getAtr(slotNum)
-
-                    // Show ATR
-                    mAtr?.let { Log.d(TAG, "ATR:" + it.toHexString()) }
-                } catch (e: IllegalArgumentException) {
-                    Log.d(TAG, e.toString())
+                if (currState < Reader.CARD_UNKNOWN
+                    || currState > Reader.CARD_SPECIFIC
+                ) {
+                    currState = Reader.CARD_UNKNOWN
                 }
+                if (currState == Reader.CARD_PRESENT) {
+                    setCardPresent(true)
+                    Log.d(TAG, "Card present")
 
-                val activeProtocol = mReader!!.setProtocol(
-                    slotNum,
-                    Reader.PROTOCOL_T1
-                )
-                Log.d(TAG, "Active protocol: " + activeProtocol)
-                if (mAtr == null) {
-                    mCardSupported = false
-                    return
-                }
-                // Check for supported card
-                if (mAtr!!.copyOfRange(0, OPERATION_GET_SUPPORTED_CARD_SIGNATURE.size).contentEquals(
-                    OPERATION_GET_SUPPORTED_CARD_SIGNATURE)) {
-                    mCardSupported = true
+                    try {
+                        mAtr = mReader!!.power(slotNum, Reader.CARD_WARM_RESET)
+                        mAtr?.let { Log.d(TAG, "ATR:" + it.toHexString()) }
+                    } catch (e: java.lang.Exception) {
+                        Log.d(TAG, e.toString())
+                    }
+
+                    try {
+                        // Get ATR
+
+                        Log.d(TAG, "Slot " + slotNum + ": Getting ATR...")
+                        mAtr = mReader!!.getAtr(slotNum)
+
+                        // Show ATR
+                        mAtr?.let { Log.d(TAG, "ATR:" + it.toHexString()) }
+                    } catch (e: IllegalArgumentException) {
+                        Log.d(TAG, e.toString())
+                    }
+
+                    val activeProtocol = mReader!!.setProtocol(
+                        slotNum,
+                        Reader.PROTOCOL_T1
+                    )
+                    Log.d(TAG, "Active protocol: " + activeProtocol)
+                    if (mAtr == null) {
+                        mCardSupported = false
+                        return
+                    }
+                    // Check for supported card
+                    if (mAtr!!.copyOfRange(0, OPERATION_GET_SUPPORTED_CARD_SIGNATURE.size).contentEquals(
+                            OPERATION_GET_SUPPORTED_CARD_SIGNATURE)) {
+                        mCardSupported = true
+                    } else {
+                        mCardSupported = false
+                    }
+
+                    sendEvent("Card present")
                 } else {
-                    mCardSupported = false
+                    sendEvent("Card NOT present")
+                    setCardPresent(false)
+                    Log.d(TAG, "Card removed")
                 }
-                sendEvent("Card present")
-            } else {
-                sendEvent("Card NOT present")
-                setCardPresent(false)
-                Log.d(TAG, "Card removed")
             }
+
         }
     }
 
     override fun transmitAndValidate(command: ByteArray, validate: Boolean): ByteArray {
-        if (!getCardPresent() || !mCardSupported) {
-            throw NFCInterfaceException("Card not present or not supported")
-        }
-        var response = ByteArray(256)
-
-        // Transmit APDU
-        val responseLength = mReader!!.transmit(
-            0,
-            command, command.size, response,
-            response.size
-        )
-        if (validate) {
-            if (responseLength < 2 || response[responseLength - 2] != 0x90.toByte()) {
-                if (response[responseLength - 2] == 0x63.toByte()) {
-                    throw NFCInterfaceException("Operation failed")
-                }
-                throw NFCInterfaceException("Invalid response")
+        synchronized(this) {
+            if (!getCardPresent() || !mCardSupported) {
+                throw NFCInterfaceException("Card not present or not supported")
             }
-            return response.copyOfRange(0, responseLength - 2)
-        } else {
-            return response.copyOfRange(0, responseLength)
+            var response = ByteArray(256)
+
+            // Transmit APDU
+            val responseLength = mReader!!.transmit(
+                0,
+                command, command.size, response,
+                response.size
+            )
+            if (validate) {
+                if (responseLength < 2 || response[responseLength - 2] != 0x90.toByte()) {
+                    if (response[responseLength - 2] == 0x63.toByte()) {
+                        throw NFCInterfaceException("Operation failed: ")
+                    }
+                    throw NFCInterfaceException("Invalid response")
+                }
+                return response.copyOfRange(0, responseLength - 2)
+            } else {
+                return response.copyOfRange(0, responseLength)
+            }
         }
     }
 
@@ -247,27 +253,31 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
         }
 
         fun doInBackground(vararg params: UsbDevice?): Exception? {
-            var result: Exception? = null
+            synchronized(this){
+                var result: Exception? = null
 
-            try {
-                mReader?.open(params[0])
-                mReaderOpened = true
+                try {
+                    mReader?.open(params[0])
+                    mReaderOpened = true
 
-            } catch (e: Exception) {
-                result = e
-            }
+                } catch (e: Exception) {
+                    result = e
+                }
 
-            return result
+                return result
+                }
         }
 
         fun onPostExecute(result: Exception?) {
-            if (result != null) {
-                Log.d(TAG, result.toString())
-            } else {
-                Log.d(TAG, "Reader name: " + mReader?.getReaderName())
+            synchronized(this){
+                if (result != null) {
+                    Log.d(TAG, result.toString())
+                } else {
+                    Log.d(TAG, "Reader name: " + mReader?.getReaderName())
 
-                val numSlots: Int? = mReader?.getNumSlots()
-                Log.d(TAG, "Number of slots: " + numSlots)
+                    val numSlots: Int? = mReader?.getNumSlots()
+                    Log.d(TAG, "Number of slots: " + numSlots)
+                }
             }
         }
     }

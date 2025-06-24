@@ -10,6 +10,7 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
+import io.ktor.server.routing.post
 import io.ktor.server.routing.options
 import io.ktor.server.routing.put
 import io.ktor.server.routing.routing
@@ -52,11 +53,6 @@ fun Application.module(nfcInterface: NFCInterface) {
         val card: CardDefinitionRequest? = null
     )
 
-    @Serializable
-    data class Tag(
-        val id: Byte,
-        val data: ByteArray
-    )
 
     @Serializable
     data class CardReadSetPasswordRequest(
@@ -110,6 +106,44 @@ fun Application.module(nfcInterface: NFCInterface) {
                 call.respond(HttpStatusCode.InternalServerError, "Error: ${e.message}")
             }
         }
+
+        post("/write") {
+            Log.d("WebServer", "Processing write post")
+            try {
+                val payload = call.receive<CardDefinitionRequest>()
+                if (payload.uuid == null) {
+                    call.respond(HttpStatusCode.BadRequest, "Missing uuid")
+                    return@post
+                }
+                Log.d("WebServer", "UUID: ${payload.uuid}")
+                val lUid = nfcInterface.GetUUID()
+                if (payload.uuid != lUid) {
+                    call.respond(HttpStatusCode.BadRequest,
+                        "Mismatched card UUID. Did you swapped the card between operations? Current UUID=$lUid"
+                    )
+                    return@post
+                }
+                if (payload.password != null) {
+                    Log.d("WebServer", "Attempting card unlock")
+                    nfcInterface.NTAG21xAuth(payload.password)
+                }
+                Log.d("WebServer", "Writing tags")
+                val tags = TagArray()
+
+                tags.addTag(Tag.newAttendeeId(payload.attendeeId, payload.conventionId))
+                tags.addTag(Tag.newIssuance(payload.issuance))
+                tags.addTag(Tag.newTimestamp(payload.timestamp))
+                tags.addTag(Tag.newExpiration(payload.expiration))
+                tags.addTag(Tag.newTimestamp(payload.expiration))
+                tags.addTag(Tag.newSignature(payload.signature))
+
+                return@post
+
+            } catch (e: Exception) {
+                call.respond(HttpStatusCode.InternalServerError, "Error: ${e.message}")
+                Log.e("WebServer", "Error: ${e.message}")
+            }
+        }
         put("/read") {
             Log.d("WebServer", "Processing read")
             try {
@@ -136,6 +170,7 @@ fun Application.module(nfcInterface: NFCInterface) {
                     tags = nfcInterface.readTags()
                     nfcInterface.resetCard()
                 } catch (e: NFCInterfaceException) {
+                    Log.d("NFCInterfaceException", "except: ${e}")
                     if (e.message!!.startsWith("Failed to read page")) {
                         call.respond(HttpStatusCode.Forbidden, Response(error = e.message, success = false))
                         return@put

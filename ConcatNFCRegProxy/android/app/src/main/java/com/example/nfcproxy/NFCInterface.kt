@@ -6,6 +6,7 @@ import org.json.JSONObject
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import android.util.Base64
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -13,6 +14,13 @@ import kotlinx.coroutines.launch
 class NFCInterfaceException: Exception {
     constructor(message: String) : super(message)
 }
+
+const val TAG_ATTENDEE_ID: Byte = 0x01
+const val TAG_SIGNATURE: Byte = 0x02
+const val TAG_ISSUANCE: Byte = 0x03
+const val TAG_TIMESTAMP: Byte = 0x04
+const val TAG_EXPIRATION: Byte = 0x05
+const val SIGNATURE_LENGTH = 74
 
 fun UInt.toByteArray(byteOrder: ByteOrder = ByteOrder.BIG_ENDIAN): ByteArray {
     return ByteBuffer.allocate(UInt.SIZE_BYTES)
@@ -234,19 +242,34 @@ abstract class NFCInterface {
     }
 
     fun NTAG21xAuth(password: UInt) {
-        val ci = getCardInfo()
-        if (!ci.Manufacturer!!.startsWith("NXP") || !ci.ProductName!!.startsWith("NTAG21")) {
-            throw NFCInterfaceException("Only NXP NTAG21x supports password")
+        var lastException: NFCInterfaceException = NFCInterfaceException("Unknown exception")
+        for (i in 1..3){
+            try {
+                val ci = getCardInfo()
+                if (!ci.Manufacturer!!.startsWith("NXP") || !ci.ProductName!!.startsWith("NTAG21")) {
+                    lastException = NFCInterfaceException("Only NXP NTAG21x supports password")
+                    continue
+                }
+                var command = bytes(0x1b)
+                command += password.toByteArray()
+                val response = transmitVendorCommand(command)
+                if (response.size < 1) {
+                    lastException = NFCInterfaceException("response too short")
+                    continue
+                }
+                if (response[0] != 0x0.toByte()) {
+                    lastException = NFCInterfaceException("Authentication failed")
+                    continue
+                }
+                return
+            } catch (e: NFCInterfaceException) {
+                Log.d("NFCInterfaceException", "Try[$i] except, and retrying: ${e.toString()}")
+                Thread.sleep(500 + 100 * i.toLong() )
+                lastException = e
+                continue
+            }
         }
-        var command = bytes(0x1b)
-        command += password.toByteArray()
-        val response = transmitVendorCommand(command)
-        if (response.size < 1) {
-            throw NFCInterfaceException("response too short")
-        }
-        if (response[0] != 0x0.toByte()) {
-            throw NFCInterfaceException("Authentication failed")
-        }
+        throw lastException
     }
 }
 
@@ -320,6 +343,67 @@ class Tag(val id: Byte, val data: ByteArray) {
     }
     fun getTagValueBytes(): Result<ByteArray> {
         return runCatching { data }
+    }
+    companion object {
+
+        fun newAttendeeId(userId: UInt?, conventionId: UInt?): Tag {
+            require(userId != null) { "Attendee ID cannot be null" }
+            require(conventionId != null) { "Convention ID cannot be null" }
+
+            val data = ByteArray(8).apply {
+                userId.toBytesBe().copyInto(this, 0)
+                conventionId.toBytesBe().copyInto(this, 4)
+            }
+            return Tag(TAG_ATTENDEE_ID, data)
+        }
+
+        fun newIssuance(value: UInt?): Tag {
+            require(value != null) { "Issuance cannot be null" }
+
+            val data = value.toBytesBe()
+            return Tag(TAG_ISSUANCE, data)
+        }
+
+
+        fun newTimestamp(unixTimestamp: ULong?): Tag {
+            require(unixTimestamp != null) { "Timestamp cannot be null" }
+
+            val data = unixTimestamp.toBytesBe()
+            return Tag(TAG_TIMESTAMP, data)
+        }
+
+        fun newExpiration(unixTimestamp: ULong?): Tag {
+            require(unixTimestamp != null) { "Expiration timestamp cannot be null" }
+
+            val data = unixTimestamp.toBytesBe()
+            return Tag(TAG_EXPIRATION, data)
+        }
+
+
+        fun newSignature(signatureString: String?): Tag {
+            require(signatureString != null) { "Signature string cannot be null" }
+
+            val data = Base64.decode(signatureString, Base64.DEFAULT)
+            require(data.size == SIGNATURE_LENGTH) {
+                "Expected signature to have $SIGNATURE_LENGTH bytes but instead it has ${data.size}"
+            }
+            return Tag(
+                id = TAG_SIGNATURE,
+                data = data
+            )
+        }
+
+        fun UInt.toBytesBe(): ByteArray {
+            val buffer = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN)
+            buffer.putInt(this.toInt())
+            return buffer.array()
+        }
+
+        fun ULong.toBytesBe(): ByteArray {
+            val buffer = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN)
+            buffer.putLong(this.toLong())
+            return buffer.array()
+        }
     }
 }
 
@@ -426,3 +510,4 @@ class TagArray {
         return json
     }
 }
+

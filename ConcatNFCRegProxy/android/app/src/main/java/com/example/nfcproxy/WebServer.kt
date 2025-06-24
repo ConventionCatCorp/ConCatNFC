@@ -119,20 +119,20 @@ fun Application.module(nfcInterface: NFCInterface) {
                     return@put
                 }
                 Log.d("WebServer", "UUID: ${payload.uuid}")
-                val lUid = nfcInterface.GetUUID()
-                if (payload.uuid != lUid) {
-                    call.respond(HttpStatusCode.BadRequest,
-                        "Mismatched card UUID. Did you swapped the card between operations? Current UUID=$lUid"
-                    )
-                    return@put
-                }
-                if (payload.password != null) {
-                    Log.d("WebServer", "Attempting card unlock")
-                    nfcInterface.NTAG21xAuth(payload.password)
-                }
-                Log.d("WebServer", "Reading tags")
                 var tags: TagArray
                 try {
+                    val lUid = nfcInterface.GetUUID()
+                    if (payload.uuid != lUid) {
+                        call.respond(HttpStatusCode.BadRequest,
+                            "Mismatched card UUID. Did you swapped the card between operations? Current UUID=$lUid"
+                        )
+                        return@put
+                    }
+                    if (payload.password != null) {
+                        Log.d("WebServer", "Attempting card unlock")
+                        nfcInterface.NTAG21xAuth(payload.password)
+                    }
+                    Log.d("WebServer", "Reading tags")
                     tags = nfcInterface.readTags()
                     nfcInterface.resetCard()
                 } catch (e: NFCInterfaceException) {

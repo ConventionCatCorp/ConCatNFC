@@ -79,7 +79,7 @@ fun MainWebView(modifier: Modifier = Modifier) {
         context.getSharedPreferences("webview_prefs", Context.MODE_PRIVATE)
     }
     val initialUrl = remember {
-        prefs.getString("last_url", "https://reg.concat.app") ?: "https://reg.concat.app"
+        prefs.getString("last_url", "https://demo.concat.app") ?: "https://demo.concat.app"
     }
 
     var url by remember { mutableStateOf(initialUrl) }

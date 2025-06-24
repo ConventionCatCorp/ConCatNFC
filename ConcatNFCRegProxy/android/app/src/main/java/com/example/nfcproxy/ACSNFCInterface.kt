@@ -160,6 +160,9 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
         )
         if (validate) {
             if (responseLength < 2 || response[responseLength - 2] != 0x90.toByte()) {
+                if (response[responseLength - 2] == 0x63.toByte()) {
+                    throw NFCInterfaceException("Operation failed")
+                }
                 throw NFCInterfaceException("Invalid response")
             }
             return response.copyOfRange(0, responseLength - 2)
@@ -177,6 +180,7 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
         if (!getCardPresent() || !mCardSupported) {
             throw NFCInterfaceException("Card not present or not supported")
         }
+/*
         val command = byteArrayOf(0x30, pageAddress.toByte())
         var response = ByteArray(65538)
 
@@ -187,12 +191,19 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
             response.size
         )
         return response.copyOfRange(0, responseLength)
-/*
+*/
         // I don't know why this is not working...
         val command = bytes(0xff, 0xb0, 0x00, pageAddress, 0x10)
-        val response = transmitAndValidate(command)
+        val response: ByteArray
+        try {
+            response = transmitAndValidate(command)
+        } catch (e: NFCInterfaceException) {
+            if (e.message == "Operation failed") {
+                throw NFCInterfaceException("Failed to read page $pageAddress")
+            }
+            throw e
+        }
         return response.copyOfRange(0, response.size)
-*/
     }
 
     init {

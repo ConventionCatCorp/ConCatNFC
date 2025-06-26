@@ -110,6 +110,7 @@ fun Application.module(nfcInterface: NFCInterface) {
         post("/write") {
             Log.d("WebServer", "Processing write post")
             try {
+
                 val payload = call.receive<CardDefinitionRequest>()
                 if (payload.uuid == null) {
                     call.respond(HttpStatusCode.BadRequest, "Missing uuid")
@@ -137,8 +138,19 @@ fun Application.module(nfcInterface: NFCInterface) {
                 tags.addTag(Tag.newTimestamp(payload.expiration))
                 tags.addTag(Tag.newSignature(payload.signature))
 
+                nfcInterface.writeTags(tags)
+                val response = Response(success = true)
+                call.respond(response)
+                Log.d("WebServer", "read success")
                 return@post
-
+            } catch (e: NFCInterfaceException) {
+                Log.d("NFCInterfaceException", "except: ${e}")
+                if (e.message!!.startsWith("Failed to read page")) {
+                    call.respond(HttpStatusCode.Forbidden, Response(error = e.message, success = false))
+                    return@post
+                }
+                call.respond(HttpStatusCode.InternalServerError, Response(error = e.message, success = false))
+                return@post
             } catch (e: Exception) {
                 call.respond(HttpStatusCode.InternalServerError, "Error: ${e.message}")
                 Log.e("WebServer", "Error: ${e.message}")

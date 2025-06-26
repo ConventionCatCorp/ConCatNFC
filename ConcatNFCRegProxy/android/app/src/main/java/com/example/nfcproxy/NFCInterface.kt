@@ -21,6 +21,10 @@ const val TAG_ISSUANCE: Byte = 0x03
 const val TAG_TIMESTAMP: Byte = 0x04
 const val TAG_EXPIRATION: Byte = 0x05
 const val SIGNATURE_LENGTH = 74
+const val PAGE_SIZE: Byte = 0x04
+val OPERATION_WRITE: ByteArray = byteArrayOf(0xFF.toByte(), 0xD6.toByte(), 0x00, 0x00, PAGE_SIZE)
+const val STARTING_REGION: Byte = 0x10
+
 
 fun UInt.toByteArray(byteOrder: ByteOrder = ByteOrder.BIG_ENDIAN): ByteArray {
     return ByteBuffer.allocate(UInt.SIZE_BYTES)
@@ -78,6 +82,7 @@ abstract class NFCInterface {
     var bytePosition: Int = 0
     val tagStartPage = 0x10
     var versionInfo: ByteArray? = null
+    var currentPageAddr: Byte = 0
 
     private var eventListener: (suspend (String) -> Unit)? = null
 
@@ -178,6 +183,48 @@ abstract class NFCInterface {
             throw NFCInterfaceException("Failed to read page $pageAddress")
         }
         return data
+    }
+
+    // This function writes a page (4 bytes) from the tag.
+    fun writePage(pageNumber: Byte, data: ByteArray) {
+        require(data.size.toByte() == PAGE_SIZE) { "Page must be $PAGE_SIZE bytes" }
+
+        val opwrite = OPERATION_WRITE.copyOf()
+        opwrite[3] = pageNumber
+
+        println("[DEBUG] Writing sized=${data.size} page=${pageNumber.toString(16)} data=${data.contentToString()}")
+        val fullCommand = opwrite + data
+
+        transmitAndValidate(fullCommand, true)
+    }
+
+    fun checkAndTransmit(accumulatedBytes: ByteArray): ByteArray {
+        if (accumulatedBytes.size.toByte() != PAGE_SIZE) {
+            return accumulatedBytes
+        }
+        writePage(currentPageAddr, accumulatedBytes)
+        currentPageAddr++
+        return ByteArray(0)
+    }
+
+    fun writeTags(tags: TagArray){
+        currentPageAddr = STARTING_REGION
+        var bytesData: ByteArray = ByteArray(0)
+        for (tag in tags.tags) {
+            bytesData += tag.id
+            bytesData = checkAndTransmit(bytesData)
+            val dataLength = tag.data.size.toByte()
+            bytesData += dataLength
+            bytesData = checkAndTransmit(bytesData)
+            for (dataByte in tag.data) {
+                bytesData += dataByte
+                bytesData = checkAndTransmit(bytesData)
+            }
+        }
+        while (bytesData.isNotEmpty()) {
+            bytesData += 0x00
+            bytesData = checkAndTransmit(bytesData)
+        }
     }
 
     fun readTags(): TagArray {

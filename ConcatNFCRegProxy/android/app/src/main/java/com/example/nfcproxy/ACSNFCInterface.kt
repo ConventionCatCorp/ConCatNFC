@@ -166,7 +166,7 @@ class ACSNFCInterface(ctx: Context): NFCInterface(ctx) {
             if (validate) {
                 if (responseLength < 2 || response[responseLength - 2] != 0x90.toByte()) {
                     if (response[responseLength - 2] == 0x63.toByte()) {
-                        throw NFCInterfaceException("Operation failed: ")
+                        throw NFCInterfaceException("Operation failed: card response is ${response.contentToString()}")
                     }
                     throw NFCInterfaceException("Invalid response")
                 }

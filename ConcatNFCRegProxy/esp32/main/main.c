@@ -2,9 +2,15 @@
 
 #include <stdio.h>
 #include <stdbool.h>
+#include <string.h>
 #include <soc/gpio_num.h>
 #include <esp_log.h>
 #include "driver/spi_common.h"
+#include "esp_system.h"
+#include "esp_console.h"
+#include "esp_vfs_dev.h"
+#include "driver/uart.h"
+#include "linenoise/linenoise.h"
 
 #include "pn532.h"
 #include "pn532_driver_hsu.h"
@@ -14,10 +20,21 @@
 static pn532_io_t nfc;
 esp_err_t err;
 
+bool debug_enabled = false;
+
+void debug(const char *fmt, ...) {
+    if (debug_enabled) {
+        va_list args;
+        va_start(args, fmt);
+        esp_log_writev(ESP_LOG_INFO, TAG, fmt, args);
+        va_end(args);
+    }
+}
 bool setup(void) {
     ESP_LOGI(TAG, "init PN532 in HSU mode");
-    ESP_ERROR_CHECK(pn532_new_driver_hsu(GPIO_NUM_9,
-                                         GPIO_NUM_10,
+
+    ESP_ERROR_CHECK(pn532_new_driver_hsu(GPIO_NUM_19,
+                                         GPIO_NUM_18,
                                          -1,
                                          -1,
                                          UART_NUM_1,
@@ -52,82 +69,168 @@ bool getFirmwareVersion(void) {
     return true;
 }
 
-void print_hex(uint8_t *buffer, uint8_t separator, uint8_t buffer_len) {
+void debug_hex(char *prefix, uint8_t *buffer, uint8_t separator, uint8_t buffer_len) {
+    char *string = (char *)malloc(strlen(prefix) + buffer_len * 3 + 1);
+    memset(string, 0, strlen(prefix) + buffer_len * 3 + 1);
+    sprintf(string, "%s", prefix);
     for (int i = 0; i < buffer_len; i++) {
-        printf("%02x", buffer[i]);
+        sprintf(string + strlen(string), "%02x", buffer[i]);
         if (separator && i < buffer_len - 1) {
-            printf("%c", separator);
+            sprintf(string + strlen(string), "%c", separator);
         }
     }
+    debug("%s", string);
+    free(string);
 }
 
-void app_main(void) {
+static void initialize_console(void)
+{
+    /* Disable buffering on stdin and stdout */
+    setvbuf(stdin, NULL, _IONBF, 0);
+    setvbuf(stdout, NULL, _IONBF, 0);
+
+    /* Minicom, screen, idf_monitor send CR when ENTER key is pressed */
+    esp_vfs_dev_uart_port_set_rx_line_endings(CONFIG_ESP_CONSOLE_UART_NUM, ESP_LINE_ENDINGS_CR);
+    /* Move the caret to the beginning of the next line on '\n' */
+    esp_vfs_dev_uart_port_set_tx_line_endings(CONFIG_ESP_CONSOLE_UART_NUM, ESP_LINE_ENDINGS_CRLF);
+
+    /* Configure UART */
+    const uart_config_t uart_config = {
+            .baud_rate = CONFIG_ESP_CONSOLE_UART_BAUDRATE,
+            .data_bits = UART_DATA_8_BITS,
+            .parity = UART_PARITY_DISABLE,
+            .stop_bits = UART_STOP_BITS_1,
+            .source_clk = UART_SCLK_DEFAULT,
+    };
+    /* Install UART driver for interrupt-driven reads and writes */
+    ESP_ERROR_CHECK( uart_driver_install(CONFIG_ESP_CONSOLE_UART_NUM,
+                                         256, 0, 0, NULL, 0) );
+    ESP_ERROR_CHECK( uart_param_config(CONFIG_ESP_CONSOLE_UART_NUM, &uart_config) );
+
+    /* Tell VFS to use UART driver */
+    esp_vfs_dev_uart_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);
+
+    /* Initialize the console */
+    esp_console_config_t console_config = {
+            .max_cmdline_args = 8,
+            .max_cmdline_length = 256,
+#if CONFIG_LOG_COLORS
+            .hint_color = atoi(LOG_COLOR_CYAN)
+#endif
+    };
+    ESP_ERROR_CHECK( esp_console_init(&console_config) );
+
+    /* Configure linenoise line completion library */
+    linenoiseSetMultiLine(1);
+    linenoiseSetCompletionCallback(&esp_console_get_completion);
+    linenoiseSetHintsCallback((linenoiseHintsCallback*) &esp_console_get_hint);
+    linenoiseHistorySetMaxLen(100);
+}
+
+static int wait_for_card(int argc, char **argv)
+{
+
+    // Wait for an ISO14443A type cards (Mifare, etc.) with a timeout.
+    err = pn532_auto_poll(&nfc, PN532_BRTY_ISO14443A_106KBPS, 60000);
+
+    if (err == ESP_OK) {
+        debug("Found an ISO14443A card");
+    } else {
+        debug("Could not find a card.");
+    }
+    return 0;
+}
+
+static int scan_nfc(int argc, char **argv)
+{
     uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
     uint8_t uidLength;                        // Length of the UID (4 or 7 bytes depending on ISO14443A card type)
 
-    if (!setup()) {
-        printf("setup failed\n");
-        return;
-    }
-/*    EnableIRQ();
-*//*
-    if (!EnableIRQ()) {
-        printf("EnableIRQ failed\n");
-        return;
-    }
-*//*
-    if (!SAMConfig()) {
-        printf("SAMConfig failed\n");
-        return;
-    }*/
-    if (!getFirmwareVersion()) {
-        printf("getFirmwareVersion failed\n");
-        return;
-    }
+    debug("Waiting for an ISO14443A Card...");
 
-    while (1) {
-        printf("Waiting for an ISO14443A Card ...");
-        // Wait for an ISO14443A type cards (Mifare, etc.).  When one is found
-        // 'uid' will be populated with the UID, and uidLength will indicate
-        // if the uid is 4 bytes (Mifare Classic) or 7 bytes (Mifare Ultralight)
-//        AutoPoll(PN532_MIFARE_ISO14443A);
-/*
-        while (1) {
-            success = AutoPoll(PN532_MIFARE_ISO14443A);
-            if (success) {
-                break;
-            }
+    // Wait for an ISO14443A type cards (Mifare, etc.) with a timeout.
+    err = pn532_read_passive_target_id(&nfc, PN532_BRTY_ISO14443A_106KBPS, uid, &uidLength, 1000);
+
+    if (err == ESP_OK) {
+        debug("Found an ISO14443A card");
+        debug("  UID Length: %d bytes", uidLength);
+        debug_hex("  UID Value: ", uid, ':', uidLength);
+    } else {
+        debug("Could not find a card.");
+    }
+    return 0;
+}
+
+static int toggle_debug(int argc, char **argv) {
+    if (debug_enabled) {
+        debug_enabled = false;
+    } else {
+        debug_enabled = true;
+        debug("Debug enabled");
+    }
+    return 0;
+}
+
+static void register_nfc_scan(void)
+{
+    const esp_console_cmd_t cmd = {
+            .command = "scan",
+            .help = "Scan for a NFC tag",
+            .hint = NULL,
+            .func = &scan_nfc,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd));
+    const esp_console_cmd_t cmd2 = {
+            .command = "wait",
+            .help = "Wait for an NFC tag",
+            .hint = NULL,
+            .func = &wait_for_card,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd2));
+    const esp_console_cmd_t cmd3 = {
+            .command = "debug",
+            .help = "Toggles debug mode",
+            .hint = NULL,
+            .func = &toggle_debug,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd3));
+}
+
+void app_main(void) {
+    setup();
+    getFirmwareVersion();
+
+    initialize_console();
+
+    /* Register commands */
+    esp_console_register_help_command();
+    register_nfc_scan();
+
+    const char* prompt = "nfc> ";
+    printf("\nNFC reader console\n");
+    printf("Type 'help' to get the list of commands.\n");
+    printf("Type 'scan' to scan for a card.\n\n");
+
+    /* Main loop */
+    while(true) {
+        char* line = linenoise(prompt);
+        if (line == NULL) { /* Break on EOF or error */
+            continue;
         }
-*/
-        printf("Reading Card...");
+        linenoiseHistoryAdd(line);
 
-        err = pn532_read_passive_target_id(&nfc, PN532_BRTY_ISO14443A_106KBPS, uid, &uidLength, 0);
-
-        if (err == ESP_OK) {
-            // Display some basic information about the card
-            printf("Found an ISO14443A card\n");
-            printf("  UID Length: %d bytes\n", uidLength);
-            printf("  UID Value: ");
-            print_hex(uid, ':', uidLength);
-            printf("\n");
-
-            if (uidLength == 4)
-            {
-                // We probably have a Mifare Classic card ...
-                uint32_t cardid = uid[0];
-                cardid <<= 8;
-                cardid |= uid[1];
-                cardid <<= 8;
-                cardid |= uid[2];
-                cardid <<= 8;
-                cardid |= uid[3];
-                printf("Seems to be a Mifare Classic card #");
-                printf("%08lx", cardid);
-            }
-            printf("\n");
-        } else {
-            printf("Error\n");
+        /* Try to run the command */
+        int ret;
+        esp_err_t err_console = esp_console_run(line, &ret);
+        if (err_console == ESP_ERR_NOT_FOUND) {
+            printf("Unrecognized command\n");
+        } else if (err_console == ESP_ERR_INVALID_ARG) {
+            // command was found, but the arguments were incorrect
+        } else if (err_console == ESP_OK && ret != ESP_OK) {
+            printf("Command returned non-zero error code: 0x%x (%s)\n", ret, esp_err_to_name(ret));
+        } else if (err_console != ESP_OK) {
+            printf("Internal error: %s\n", esp_err_to_name(err_console));
         }
-        vTaskDelay(500 / portTICK_PERIOD_MS);
+        linenoiseFree(line);
     }
 }

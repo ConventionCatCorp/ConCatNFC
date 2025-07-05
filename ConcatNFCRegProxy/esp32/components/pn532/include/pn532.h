@@ -241,6 +241,10 @@ esp_err_t ntag2xx_read_page(pn532_io_handle_t io_handle, uint8_t page, uint8_t *
  */
 esp_err_t ntag2xx_write_page(pn532_io_handle_t io_handle, uint8_t page, const uint8_t *data);
 
+esp_err_t pn532_auto_poll(pn532_io_handle_t io_handle,
+                                       uint8_t baud_rate_and_card_type,
+                          int32_t timeout);
+
 #ifdef __cplusplus
 }
 #endif

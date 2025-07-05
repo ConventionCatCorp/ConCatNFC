@@ -86,6 +86,42 @@ esp_err_t pn532_set_passive_activation_retries(pn532_io_handle_t io_handle, uint
     return pn532_send_command_wait_ack(io_handle, pn532_packetbuffer, 5, PN532_WRITE_TIMEOUT);
 }
 
+esp_err_t pn532_auto_poll(pn532_io_handle_t io_handle,
+                                       uint8_t baud_rate_and_card_type,
+                          int32_t timeout)
+{
+    pn532_packetbuffer[0] = PN532_COMMAND_INAUTOPOLL;
+    pn532_packetbuffer[1] = 0xff; // endless polling
+    pn532_packetbuffer[2] = 0x1; // n x 150ms polling units
+    pn532_packetbuffer[3] = baud_rate_and_card_type;
+
+    esp_err_t err = pn532_send_command_wait_ack(io_handle, pn532_packetbuffer, 4, PN532_WRITE_TIMEOUT);
+    if (ESP_OK != err) {
+#ifdef CONFIG_PN532DEBUG
+        ESP_LOGD(TAG, "No card(s) read");
+#endif
+        return err;
+    }
+
+#ifdef CONFIG_PN532DEBUG
+    ESP_LOGD(TAG, "Waiting for IRQ (indicates card presence)");
+#endif
+    err = pn532_wait_ready(io_handle, timeout);
+    if (ESP_OK != err) {
+#ifdef CONFIG_PN532DEBUG
+        ESP_LOGD(TAG, "PN532 not ready, timeout or error occurred");
+#endif
+        return err;
+    }
+#ifdef CONFIG_PN532DEBUG
+    ESP_LOGD(TAG, "PN532 ready. Reading data packet");
+#endif
+    err = pn532_read_data(io_handle, pn532_packetbuffer, 32, timeout);
+    if (ESP_OK != err)
+        return err;
+    return ESP_OK;
+}
+
 esp_err_t pn532_read_passive_target_id(pn532_io_handle_t io_handle,
                                        uint8_t baud_rate_and_card_type,
                                        uint8_t *uid,

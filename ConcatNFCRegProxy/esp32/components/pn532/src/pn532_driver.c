@@ -9,7 +9,7 @@
 
 static const char TAG[] = "pn532_driver";
 
-//#define CONFIG_PN532DEBUG
+#define CONFIG_PN532DEBUG
 
 #ifndef CONFIG_ENABLE_IRQ_ISR
 static bool pn532_is_ready();

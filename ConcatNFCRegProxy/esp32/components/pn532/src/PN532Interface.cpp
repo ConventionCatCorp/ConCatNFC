@@ -5,15 +5,11 @@
 #include "freertos/queue.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
-#include "pn532_driver.h"
+#include "PN532Interface.h"
 
 static const char TAG[] = "pn532_driver";
 
 #define CONFIG_PN532DEBUG
-
-#ifndef CONFIG_ENABLE_IRQ_ISR
-static bool pn532_is_ready();
-#endif
 
 #define PN532_COMMAND_BUFFER_LEN 64
 
@@ -28,20 +24,23 @@ static void IRAM_ATTR pn532_irq_handler(void *arg) {
 }
 #endif
 
-esp_err_t pn532_init(pn532_io_handle_t io_handle)
+const uint8_t ACK_FRAME[]  = { 0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00 };
+const size_t ACK_FRAME_SIZE = sizeof(ACK_FRAME);
+
+const uint8_t NACK_FRAME[] = { 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00 };
+const size_t NACK_FRAME_SIZE = sizeof(NACK_FRAME);
+
+esp_err_t PN532Interface::pn532_init()
 {
     gpio_config_t io_conf;
 
-    if (io_handle == NULL)
-        return ESP_ERR_INVALID_ARG;
-
-    if (io_handle->reset != GPIO_NUM_NC) {
+    if (m_reset != GPIO_NUM_NC) {
         // configure Reset pin
         io_conf.intr_type = GPIO_INTR_DISABLE;
         io_conf.mode = GPIO_MODE_OUTPUT;
-        io_conf.pin_bit_mask = ((1ULL) << io_handle->reset);
-        io_conf.pull_down_en = 0;
-        io_conf.pull_up_en = 1;
+        io_conf.pin_bit_mask = ((1ULL) << m_reset);
+        io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+        io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
         if (gpio_config(&io_conf) != ESP_OK)
             return ESP_FAIL;
     }
@@ -62,7 +61,7 @@ esp_err_t pn532_init(pn532_io_handle_t io_handle)
     ESP_LOGD(TAG, "pn532_init(): using IRQ line in polling mode.");
 #endif
 
-    if (io_handle->irq != GPIO_NUM_NC) {
+    if (m_irq != GPIO_NUM_NC) {
         // configure IRQ pin
 #ifdef CONFIG_ENABLE_IRQ_ISR
         io_conf.intr_type = GPIO_INTR_NEGEDGE;
@@ -70,23 +69,23 @@ esp_err_t pn532_init(pn532_io_handle_t io_handle)
         io_conf.intr_type = GPIO_INTR_DISABLE;
 #endif
         io_conf.mode = GPIO_MODE_INPUT;
-        io_conf.pin_bit_mask = ((1ULL) << io_handle->irq);
-        io_conf.pull_down_en = 0;
-        io_conf.pull_up_en = 1;
+        io_conf.pin_bit_mask = ((1ULL) << m_irq);
+        io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+        io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
         if (gpio_config(&io_conf) != ESP_OK)
             return ESP_FAIL;
     }
 
     // Reset the PN532
-    if (io_handle->reset != GPIO_NUM_NC) {
+    if (m_reset != GPIO_NUM_NC) {
         ESP_LOGD(TAG, "reset PN532 ...");
-        pn532_reset(io_handle);
+        pn532_reset();
         ESP_LOGD(TAG, "reset done");
     }
 
     ESP_LOGD(TAG, "pn532_init(): call pn532_init_io() ...");
-    io_handle->isSAMConfigDone = false;
-    esp_err_t err = io_handle->pn532_init_io(io_handle);
+    m_isSAMConfigDone = false;
+    esp_err_t err = pn532_init_io();
     if (err != ESP_OK)
         return err;
 
@@ -98,32 +97,25 @@ esp_err_t pn532_init(pn532_io_handle_t io_handle)
 #endif
 
     ESP_LOGD(TAG, "pn532_init(): call pn532_SAM_config() ...");
-    err = pn532_SAM_config(io_handle);
+    err = pn532_SAM_config();
     if (err != ESP_OK)
         return err;
 
-    io_handle->isSAMConfigDone = true;
+    m_isSAMConfigDone = true;
 
     ESP_LOGD(TAG, "pn532_init(): call pn532_init_extra() ...");
-    if (io_handle->pn532_init_extra != NULL) {
-        err = io_handle->pn532_init_extra(io_handle);
-        if (err != ESP_OK)
-            return err;
-    }
+    err = pn532_init_extra();
+    if (err != ESP_OK)
+        return err;
 
     ESP_LOGD(TAG, "init ok");
     return err;
 }
 
-void pn532_release(pn532_io_handle_t io_handle)
+void PN532Interface::pn532_release()
 {
-    if (io_handle == NULL)
-        return;
-
     ESP_LOGD(TAG, "call pn532_release_io() ...");
-    if (io_handle->pn532_release_io != NULL) {
-        io_handle->pn532_release_io(io_handle);
-    }
+    pn532_release_io();
 
 #ifdef CONFIG_ENABLE_IRQ_ISR
     if (io_handle->irq != GPIO_NUM_NC) {
@@ -139,40 +131,31 @@ void pn532_release(pn532_io_handle_t io_handle)
     }
 #endif
 
-    if (io_handle->reset != GPIO_NUM_NC) {
+    if (m_reset != GPIO_NUM_NC) {
         ESP_LOGD(TAG, "release reset pin");
-        gpio_reset_pin(io_handle->reset);
+        gpio_reset_pin(m_reset);
     }
 
-    if (io_handle->irq != GPIO_NUM_NC) {
+    if (m_irq != GPIO_NUM_NC) {
         ESP_LOGD(TAG, "release irq pin");
-        gpio_reset_pin(io_handle->irq);
+        gpio_reset_pin(m_irq);
     }
 }
 
-void pn532_delete_driver(pn532_io_handle_t io_handle)
+void PN532Interface::pn532_reset()
 {
-    if (io_handle == NULL)
+    if (m_reset == GPIO_NUM_NC)
         return;
 
-    if (io_handle->pn532_release_driver != NULL)
-        io_handle->pn532_release_driver(io_handle);
-}
-
-void pn532_reset(pn532_io_handle_t io_handle)
-{
-    if (io_handle->reset == GPIO_NUM_NC)
-        return;
-
-    gpio_set_level(io_handle->reset, 0);
+    gpio_set_level(m_reset, 0);
     vTaskDelay(400 / portTICK_PERIOD_MS);
-    gpio_set_level(io_handle->reset, 1);
+    gpio_set_level(m_reset, 1);
     vTaskDelay(10 / portTICK_PERIOD_MS);
 
-    io_handle->isSAMConfigDone = false;
+    m_isSAMConfigDone = false;
 }
 
-esp_err_t pn532_write_command(pn532_io_handle_t io_handle, const uint8_t *cmd, uint8_t cmdlen, int timeout)
+esp_err_t PN532Interface::pn532_write_command(const uint8_t *cmd, uint8_t cmdlen, int timeout)
 {
     static uint8_t command[256];
 
@@ -200,7 +183,7 @@ esp_err_t pn532_write_command(pn532_io_handle_t io_handle, const uint8_t *cmd, u
 //    vTaskDelay(pdMS_TO_TICKS(100));
 
 //    ESP_LOGI(TAG, "going to send command ...");
-    esp_err_t result = io_handle->pn532_write(io_handle, command, idx, timeout);
+    esp_err_t result = pn532_write(command, idx, timeout);
 
     if (result != ESP_OK) {
         char *resultText = NULL;
@@ -226,7 +209,7 @@ esp_err_t pn532_write_command(pn532_io_handle_t io_handle, const uint8_t *cmd, u
     return result;
 }
 
-esp_err_t pn532_read_data(pn532_io_handle_t io_handle, uint8_t *buffer, uint8_t length, int32_t timeout)
+esp_err_t PN532Interface::pn532_read_data(uint8_t *buffer, uint8_t length, int32_t timeout)
 {
     static uint8_t local_buffer[256];
 
@@ -236,7 +219,7 @@ esp_err_t pn532_read_data(pn532_io_handle_t io_handle, uint8_t *buffer, uint8_t 
         timeout = -1;
     }
 
-    esp_err_t res = io_handle->pn532_read(io_handle, local_buffer, length, timeout);
+    esp_err_t res = pn532_read(local_buffer, length, timeout);
     if (res != ESP_OK) {
         return res;
     }
@@ -257,17 +240,17 @@ esp_err_t pn532_read_data(pn532_io_handle_t io_handle, uint8_t *buffer, uint8_t 
  * @param io_handle PN532 io handle
  * @return true, if ready
  */
-bool pn532_is_ready(pn532_io_handle_t io_handle)
+bool PN532Interface::pn532_is_ready()
 {
     // check if status is ready by IRQ line being pulled low.
-    uint8_t x = gpio_get_level(io_handle->irq);
+    uint8_t x = gpio_get_level(m_irq);
 #ifdef CONFIG_IRQDEBUG
     ESP_LOGI(TAG, "IRQ: %d", x);
 #endif
     return (x == 0);
 }
 #endif
-static esp_err_t pn532_poll_ready(pn532_io_handle_t io_handle, int32_t timeout)
+esp_err_t PN532Interface::pn532_poll_ready(int32_t timeout)
 {
     TickType_t start_ticks = xTaskGetTickCount();
     TickType_t timeout_ticks = (timeout > 0) ? pdMS_TO_TICKS(timeout) : portMAX_DELAY;
@@ -278,7 +261,7 @@ static esp_err_t pn532_poll_ready(pn532_io_handle_t io_handle, int32_t timeout)
     bool is_ready = false;
     while (!is_ready && elapsed_ticks <= timeout_ticks)
     {
-        is_ready = ESP_OK == io_handle->pn532_is_ready(io_handle);
+        is_ready = ESP_OK == pn532_is_ready();
         if (!is_ready) {
             vTaskDelay(pdMS_TO_TICKS(10));
             elapsed_ticks = xTaskGetTickCount() - start_ticks;
@@ -288,12 +271,12 @@ static esp_err_t pn532_poll_ready(pn532_io_handle_t io_handle, int32_t timeout)
     return is_ready ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 
-esp_err_t pn532_wait_ready(pn532_io_handle_t io_handle, int32_t timeout)
+esp_err_t PN532Interface::pn532_wait_ready(int32_t timeout)
 {
-    if (io_handle->irq == GPIO_NUM_NC) {
+    if (m_irq == GPIO_NUM_NC) {
         esp_err_t err = ESP_OK;
-        if (io_handle->pn532_is_ready != NULL) {
-            err = pn532_poll_ready(io_handle, timeout);
+        if (m_hasIsReady) {
+            err = pn532_poll_ready(timeout);
         }
         return err;
     }
@@ -316,7 +299,7 @@ esp_err_t pn532_wait_ready(pn532_io_handle_t io_handle, int32_t timeout)
     return ESP_FAIL;
 #else
     uint16_t timer = 0;
-    while (!pn532_is_ready(io_handle))
+    while (!pn532_is_ready())
     {
         if (timeout != 0)
         {
@@ -335,25 +318,21 @@ esp_err_t pn532_wait_ready(pn532_io_handle_t io_handle, int32_t timeout)
 #endif
 }
 
-esp_err_t pn532_SAM_config(pn532_io_handle_t io_handle)
+esp_err_t PN532Interface::pn532_SAM_config()
 {
     esp_err_t result;
     uint8_t response_buffer[16];
 
-    if (io_handle == NULL || io_handle->driver_data == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
     static const uint8_t sam_config_frame[] = { 0x14, 0x01, 0x00, 0x01 }; // normal mode and use IRQ pin
 
-    result = pn532_send_command_wait_ack(io_handle, sam_config_frame, sizeof(sam_config_frame), 1000);
+    result = pn532_send_command_wait_ack(sam_config_frame, sizeof(sam_config_frame), 1000);
     if (ESP_OK != result)
         return result;
 
 #ifdef CONFIG_PN532DEBUG
     ESP_LOGD(TAG, "pn532_SAM_config(): Waiting for IRQ/ready");
 #endif
-    result = pn532_wait_ready(io_handle, 100);
+    result = pn532_wait_ready(100);
     if (ESP_OK != result) {
 #ifdef CONFIG_PN532DEBUG
         ESP_LOGD(TAG, "pn532_SAM_config(): Timeout occurred");
@@ -362,7 +341,7 @@ esp_err_t pn532_SAM_config(pn532_io_handle_t io_handle)
     }
 
     // read data packet
-    result = pn532_read_data(io_handle, response_buffer, 10, PN532_READ_TIMEOUT);
+    result = pn532_read_data(response_buffer, 10, PN532_READ_TIMEOUT);
     if (ESP_OK != result)
         return result;
 
@@ -372,16 +351,16 @@ esp_err_t pn532_SAM_config(pn532_io_handle_t io_handle)
     return ESP_OK;
 }
 
-esp_err_t pn532_send_command_wait_ack(pn532_io_handle_t io_handle, const uint8_t *cmd, uint8_t cmd_length, int32_t timeout)
+esp_err_t PN532Interface::pn532_send_command_wait_ack(const uint8_t *cmd, uint8_t cmd_length, int32_t timeout)
 {
     esp_err_t result;
 
-    if (io_handle == NULL || io_handle->driver_data == NULL || cmd == NULL || cmd_length == 0) {
+    if (cmd == NULL || cmd_length == 0) {
         return ESP_ERR_INVALID_ARG;
     }
 
     // write the command
-    result = pn532_write_command(io_handle, cmd, cmd_length, timeout);
+    result = pn532_write_command(cmd, cmd_length, timeout);
     if (result != ESP_OK) {
         return result;
     }
@@ -389,7 +368,7 @@ esp_err_t pn532_send_command_wait_ack(pn532_io_handle_t io_handle, const uint8_t
 #ifdef CONFIG_PN532DEBUG
     ESP_LOGD(TAG, "pn532_send_command_wait_ack(): Waiting for PN532 IRQ/ready");
 #endif
-    result = pn532_wait_ready(io_handle, timeout);
+    result = pn532_wait_ready(timeout);
     if (result != ESP_OK) {
 #ifdef CONFIG_PN532DEBUG
         if (result == ESP_ERR_TIMEOUT)
@@ -401,7 +380,7 @@ esp_err_t pn532_send_command_wait_ack(pn532_io_handle_t io_handle, const uint8_t
 
     // read acknowledgement
 
-    result = pn532_read_ack(io_handle);
+    result = pn532_read_ack();
     if (result != ESP_OK) {
 #ifdef CONFIG_PN532DEBUG
         ESP_LOGD(TAG, "pn532_send_command_wait_ack(): No ACK frame received!");
@@ -411,14 +390,11 @@ esp_err_t pn532_send_command_wait_ack(pn532_io_handle_t io_handle, const uint8_t
     return result;
 }
 
-esp_err_t pn532_read_ack(pn532_io_handle_t io_handle) {
+esp_err_t PN532Interface::pn532_read_ack() {
     uint8_t ack_buffer[6];
     esp_err_t result;
 
-    if (io_handle == NULL || io_handle->driver_data == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    result = pn532_read_data(io_handle, ack_buffer, sizeof(ACK_FRAME), PN532_READ_TIMEOUT);
+    result = pn532_read_data(ack_buffer, sizeof(ACK_FRAME), PN532_READ_TIMEOUT);
     if (result != ESP_OK)
         return result;
 

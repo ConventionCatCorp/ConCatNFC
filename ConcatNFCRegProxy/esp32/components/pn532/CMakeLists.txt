@@ -1,9 +1,9 @@
 idf_component_register(
 	SRCS
-		src/pn532.c
-		src/pn532_driver.c
-		src/pn532_driver_i2c.c
-		src/pn532_driver_hsu.c
+		src/PN532.cpp
+		src/PN532Interface.cpp
+		src/PN532InterfaceHSU.cpp
+		src/PN532InterfaceI2C.cpp
 	INCLUDE_DIRS
 		include
 	REQUIRES

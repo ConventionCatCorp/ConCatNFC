@@ -12,12 +12,12 @@
 #include "driver/uart.h"
 #include "linenoise/linenoise.h"
 
-#include "pn532.h"
-#include "pn532_driver_hsu.h"
+#include "PN532.h"
+#include "PN532InterfaceHSU.h"
 
 #define TAG "main"
 
-static pn532_io_t nfc;
+static PN532 *nfc;
 esp_err_t err;
 
 bool debug_enabled = false;
@@ -33,18 +33,14 @@ void debug(const char *fmt, ...) {
 bool setup(void) {
     ESP_LOGI(TAG, "init PN532 in HSU mode");
 
-    ESP_ERROR_CHECK(pn532_new_driver_hsu(GPIO_NUM_19,
-                                         GPIO_NUM_18,
-                                         -1,
-                                         -1,
-                                         UART_NUM_1,
-                                         115200,
-                                         &nfc));
+    PN532Interface *interface = new PN532InterfaceHSU(GPIO_NUM_19, GPIO_NUM_18, GPIO_NUM_NC, GPIO_NUM_NC, UART_NUM_1, 115200);
+    nfc = new PN532(interface);
+
     do {
-        err = pn532_init(&nfc);
+        err = nfc->m_Interface->pn532_init();
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "failed to initialize PN532");
-            pn532_release(&nfc);
+            nfc->m_Interface->pn532_release();
             vTaskDelay(1000 / portTICK_PERIOD_MS);
         }
     } while(err != ESP_OK);
@@ -55,10 +51,10 @@ bool setup(void) {
 bool getFirmwareVersion(void) {
     uint32_t version_data = 0;
     do {
-        err = pn532_get_firmware_version(&nfc, &version_data);
+        err = nfc->pn532_get_firmware_version(&version_data);
         if (ESP_OK != err) {
             ESP_LOGI(TAG, "Didn't find PN53x board");
-            pn532_reset(&nfc);
+            nfc->m_Interface->pn532_reset();
             vTaskDelay(1000 / portTICK_PERIOD_MS);
         }
     } while (ESP_OK != err);
@@ -103,17 +99,16 @@ static void initialize_console(void)
             .source_clk = UART_SCLK_DEFAULT,
     };
     /* Install UART driver for interrupt-driven reads and writes */
-    ESP_ERROR_CHECK( uart_driver_install(CONFIG_ESP_CONSOLE_UART_NUM,
-                                         256, 0, 0, NULL, 0) );
-    ESP_ERROR_CHECK( uart_param_config(CONFIG_ESP_CONSOLE_UART_NUM, &uart_config) );
+    ESP_ERROR_CHECK( uart_driver_install(UART_NUM_0, 256, 0, 0, NULL, 0) );
+    ESP_ERROR_CHECK( uart_param_config(UART_NUM_0, &uart_config) );
 
     /* Tell VFS to use UART driver */
     esp_vfs_dev_uart_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);
 
     /* Initialize the console */
     esp_console_config_t console_config = {
-            .max_cmdline_args = 8,
             .max_cmdline_length = 256,
+            .max_cmdline_args = 8,
 #if CONFIG_LOG_COLORS
             .hint_color = atoi(LOG_COLOR_CYAN)
 #endif
@@ -131,7 +126,7 @@ static int wait_for_card(int argc, char **argv)
 {
 
     // Wait for an ISO14443A type cards (Mifare, etc.) with a timeout.
-    err = pn532_auto_poll(&nfc, PN532_BRTY_ISO14443A_106KBPS, 60000);
+    err = nfc->pn532_auto_poll(PN532_BRTY_ISO14443A_106KBPS, 60000);
 
     if (err == ESP_OK) {
         debug("Found an ISO14443A card");
@@ -149,7 +144,7 @@ static int scan_nfc(int argc, char **argv)
     debug("Waiting for an ISO14443A Card...");
 
     // Wait for an ISO14443A type cards (Mifare, etc.) with a timeout.
-    err = pn532_read_passive_target_id(&nfc, PN532_BRTY_ISO14443A_106KBPS, uid, &uidLength, 1000);
+    err = nfc->pn532_read_passive_target_id(PN532_BRTY_ISO14443A_106KBPS, uid, &uidLength, 1000);
 
     if (err == ESP_OK) {
         debug("Found an ISO14443A card");
@@ -196,7 +191,7 @@ static void register_nfc_scan(void)
     ESP_ERROR_CHECK(esp_console_cmd_register(&cmd3));
 }
 
-void app_main(void) {
+extern "C" void app_main(void) {
     setup();
     getFirmwareVersion();
 

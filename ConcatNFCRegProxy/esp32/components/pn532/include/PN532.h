@@ -1,3 +1,6 @@
+#ifndef CONCAT_NFC_PROXY_ESP32_PN532_H
+#define CONCAT_NFC_PROXY_ESP32_PN532_H
+
 /**
  * @file     pn532.h
  * @author   D. Braun
@@ -6,9 +9,6 @@
  * This component is inspired the Adafruit library.
  */
 
-#ifndef PN532_H
-#define PN532_H
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -16,13 +16,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "driver/gpio.h"
-#include "pn532_driver.h"
-
-
-#ifdef __cplusplus
-extern "C"
-{
-#endif
+#include "PN532Interface.h"
 
 #define PN532_PREAMBLE                      (0x00)
 #define PN532_STARTCODE1                    (0x00)
@@ -146,13 +140,19 @@ typedef enum {
 
 // Generic PN532 functions
 
+class PN532 {
+public:
+    PN532(PN532Interface *Interface);
+
+    PN532Interface *m_Interface;
+
 /**
  * Get firmware version of the PN5xx chip.
  * @param io_handle PN532 io handle
  * @param fw_version variable to store firmware version
  * @return ESP_OK if successful
  */
-esp_err_t pn532_get_firmware_version(pn532_io_handle_t io_handle, uint32_t *fw_version);
+    esp_err_t pn532_get_firmware_version(uint32_t *fw_version);
 
 /**
  * Set MxRtyPassiveActivate value.
@@ -162,7 +162,7 @@ esp_err_t pn532_get_firmware_version(pn532_io_handle_t io_handle, uint32_t *fw_v
  * @param maxRetries 0x00 - only one try, 0xFF - try for ever, 0x01..0xFE - number of retries
  * @return ESP_OK if successful
  */
-esp_err_t pn532_set_passive_activation_retries(pn532_io_handle_t io_handle, uint8_t maxRetries);
+    esp_err_t pn532_set_passive_activation_retries(uint8_t maxRetries);
 
 // ISO14443A functions
 
@@ -175,11 +175,10 @@ esp_err_t pn532_set_passive_activation_retries(pn532_io_handle_t io_handle, uint
  * @param timeout timeout in milliseconds. If 0, wait forever
  * @return ESP_OK if successful
  */
-esp_err_t pn532_read_passive_target_id(pn532_io_handle_t io_handle,
-                                       uint8_t baud_rate_and_card_type,
-                                       uint8_t *uid,
-                                       uint8_t *uid_length,
-                                       int32_t timeout);
+    esp_err_t pn532_read_passive_target_id(uint8_t baud_rate_and_card_type,
+                                           uint8_t *uid,
+                                           uint8_t *uid_length,
+                                           int32_t timeout);
 
 /**
  * Exchange an APDU with the currently inListed target
@@ -190,8 +189,10 @@ esp_err_t pn532_read_passive_target_id(pn532_io_handle_t io_handle,
  * @param response_length [inout] length of received response
  * @return ESP_OK if successful
  */
-esp_err_t pn532_in_data_exchange(pn532_io_handle_t io_handle, const uint8_t *send_buffer, uint8_t send_buffer_length, uint8_t *response,
-                                 uint8_t *response_length);
+    esp_err_t
+    pn532_in_data_exchange( const uint8_t *send_buffer, uint8_t send_buffer_length,
+                           uint8_t *response,
+                           uint8_t *response_length);
 
 /**
  * InLists a passive target.
@@ -199,7 +200,7 @@ esp_err_t pn532_in_data_exchange(pn532_io_handle_t io_handle, const uint8_t *sen
  * @param io_handle PN532 io handle
  * @return ESP_OK if successful
  */
-esp_err_t pn532_in_list_passive_target(pn532_io_handle_t io_handle);
+    esp_err_t pn532_in_list_passive_target();
 
 
 // NTAG2xx functions
@@ -210,7 +211,7 @@ esp_err_t pn532_in_list_passive_target(pn532_io_handle_t io_handle);
  * @param model the model detected
  * @return ESP_OK if successful
  */
-esp_err_t ntag2xx_get_model(pn532_io_handle_t io_handle, NTAG2XX_MODEL *model);
+    esp_err_t ntag2xx_get_model( NTAG2XX_MODEL *model);
 
 /**
  * Authenticate a page.
@@ -221,7 +222,8 @@ esp_err_t ntag2xx_get_model(pn532_io_handle_t io_handle, NTAG2XX_MODEL *model);
  * @param uid_length length of the UID
  * @return ESP_OK if successful
  */
-esp_err_t ntag2xx_authenticate(pn532_io_handle_t io_handle, uint8_t page, uint8_t *key, uint8_t *uid, uint8_t uid_length);
+    esp_err_t
+    ntag2xx_authenticate( uint8_t page, uint8_t *key, uint8_t *uid, uint8_t uid_length);
 
 /**
  * Read a 4 byte page.
@@ -230,7 +232,7 @@ esp_err_t ntag2xx_authenticate(pn532_io_handle_t io_handle, uint8_t page, uint8_
  * @param buffer buffer to receive data
  * @return ESP_OK if successful
  */
-esp_err_t ntag2xx_read_page(pn532_io_handle_t io_handle, uint8_t page, uint8_t *buffer, size_t read_len);
+    esp_err_t ntag2xx_read_page( uint8_t page, uint8_t *buffer, size_t read_len);
 
 /**
  * Write a 4 byte page.
@@ -239,14 +241,10 @@ esp_err_t ntag2xx_read_page(pn532_io_handle_t io_handle, uint8_t page, uint8_t *
  * @param data pointer to data to write
  * @return ESP_OK if successful
  */
-esp_err_t ntag2xx_write_page(pn532_io_handle_t io_handle, uint8_t page, const uint8_t *data);
+    esp_err_t ntag2xx_write_page( uint8_t page, const uint8_t *data);
 
-esp_err_t pn532_auto_poll(pn532_io_handle_t io_handle,
-                                       uint8_t baud_rate_and_card_type,
-                          int32_t timeout);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif
+    esp_err_t pn532_auto_poll(
+                              uint8_t baud_rate_and_card_type,
+                              int32_t timeout);
+};
+#endif //CONCAT_NFC_PROXY_ESP32_PN532_H

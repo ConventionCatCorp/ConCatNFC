@@ -1,7 +1,6 @@
 #define CONFIG_LOG_MASTER_LEVEL ESP_LOG_DEBUG
 
 #include <stdio.h>
-#include <stdbool.h>
 #include <string.h>
 #include <soc/gpio_num.h>
 #include <esp_log.h>
@@ -11,9 +10,11 @@
 #include "esp_vfs_dev.h"
 #include "driver/uart.h"
 #include "linenoise/linenoise.h"
+#include "esp_log_level.h"
 
 #include "PN532.h"
 #include "PN532InterfaceHSU.h"
+#include "nfc_operations.h"
 
 #define TAG "main"
 
@@ -22,14 +23,6 @@ esp_err_t err;
 
 bool debug_enabled = false;
 
-void debug(const char *fmt, ...) {
-    if (debug_enabled) {
-        va_list args;
-        va_start(args, fmt);
-        esp_log_writev(ESP_LOG_INFO, TAG, fmt, args);
-        va_end(args);
-    }
-}
 bool setup(void) {
     ESP_LOGI(TAG, "init PN532 in HSU mode");
 
@@ -65,18 +58,27 @@ bool getFirmwareVersion(void) {
     return true;
 }
 
-void debug_hex(char *prefix, uint8_t *buffer, uint8_t separator, uint8_t buffer_len) {
-    char *string = (char *)malloc(strlen(prefix) + buffer_len * 3 + 1);
-    memset(string, 0, strlen(prefix) + buffer_len * 3 + 1);
-    sprintf(string, "%s", prefix);
+char *bin2hex(uint8_t *buffer, uint8_t buffer_len, char separator) {
+    char *string = (char *)malloc(buffer_len * 3 + 1);
+    memset(string, 0, buffer_len * 3 + 1);
     for (int i = 0; i < buffer_len; i++) {
         sprintf(string + strlen(string), "%02x", buffer[i]);
         if (separator && i < buffer_len - 1) {
             sprintf(string + strlen(string), "%c", separator);
         }
     }
-    debug("%s", string);
+    return string;
+}
+
+void debug_hex(char *prefix, uint8_t *buffer, uint8_t separator, uint8_t buffer_len) {
+    char *string = (char *)malloc(strlen(prefix) + buffer_len * 3 + 1);
+    memset(string, 0, strlen(prefix) + buffer_len * 3 + 1);
+    sprintf(string, "%s", prefix);
+    char *hex = bin2hex(buffer, buffer_len, separator);
+    sprintf(string + strlen(string), "%s", hex);
+    ESP_LOGD(TAG, "%s", string);
     free(string);
+    free(hex);
 }
 
 static void initialize_console(void)
@@ -129,39 +131,95 @@ static int wait_for_card(int argc, char **argv)
     err = nfc->pn532_auto_poll(PN532_BRTY_ISO14443A_106KBPS, 60000);
 
     if (err == ESP_OK) {
-        debug("Found an ISO14443A card");
+        printf("Detected\n");
     } else {
-        debug("Could not find a card.");
+        printf("Not detected\n");
     }
     return 0;
 }
 
-static int scan_nfc(int argc, char **argv)
+static int uuid(int argc, char **argv)
 {
     uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
     uint8_t uidLength;                        // Length of the UID (4 or 7 bytes depending on ISO14443A card type)
 
-    debug("Waiting for an ISO14443A Card...");
+    ESP_LOGD(TAG, "Waiting for an ISO14443A Card...");
 
     // Wait for an ISO14443A type cards (Mifare, etc.) with a timeout.
-    err = nfc->pn532_read_passive_target_id(PN532_BRTY_ISO14443A_106KBPS, uid, &uidLength, 1000);
+    err = get_uuid(nfc, uid, &uidLength);
 
     if (err == ESP_OK) {
-        debug("Found an ISO14443A card");
-        debug("  UID Length: %d bytes", uidLength);
+        ESP_LOGD(TAG, "Found an ISO14443A card");
+        ESP_LOGD(TAG, "  UID Length: %d bytes", uidLength);
         debug_hex("  UID Value: ", uid, ':', uidLength);
+        char *hex = bin2hex(uid, uidLength, 0);
+        printf("{\"uuid\":\"%s\",\"success\":true}\n", hex);
+        free(hex);
     } else {
-        debug("Could not find a card.");
+        ESP_LOGD(TAG, "Could not find a card.");
+        printf("{\"success\":false,\"error\":\"Could not find a card\"}\n");
+    }
+    return 0;
+}
+
+static int read_tag(int argc, char **argv) {
+    if (argc < 2) {
+        printf("{\"success\":false,\"error\":\"Not enough arguments\"}\n");
+        return 0;
+    }
+    if (strlen(argv[1]) != 14) {
+        printf("{\"success\":false,\"error\":\"Expected UUID length of 14\"}\n");
+        return 0;
+    }
+    uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
+    for (int i = 0; i < 7; i++) {
+        unsigned long ul;
+        char pByte[3];
+        memcpy(pByte, &argv[1][i * 2], 2);
+        pByte[2] = '\0';
+        ul = strtol(pByte, NULL, 16);
+        if (ul == ULONG_MAX || ul > 256) {
+            printf("{\"success\":false,\"error\":\"Invalid UUID\"}\n");
+            return 0;
+        }
+        uid[i] = ul;
+    }
+    uint32_t password;
+    returnData ret;
+    if (argc == 3) {
+        password = strtol(argv[2], NULL, 10);
+        ret = read_tag_data(nfc, uid, 7, &password);
+    } else {
+        ret = read_tag_data(nfc, uid, 7, NULL);
+    }
+    if (!ret.success) {
+        char buf[256];
+        if (!ret.message) {
+            sprintf(buf, "Error %d", ret.errorCode);
+        } else {
+            sprintf(buf, "%s", ret.message);
+        }
+        printf("{\"success\":false,\"error\":\"%s\"}\n", buf);
+        return 0;
     }
     return 0;
 }
 
 static int toggle_debug(int argc, char **argv) {
     if (debug_enabled) {
+        ESP_LOGD(TAG, "Debug disabled");
         debug_enabled = false;
+        esp_log_set_level_master(ESP_LOG_NONE);
+        esp_log_level_set(TAG, ESP_LOG_NONE);
+        esp_log_level_set("pn532_driver", ESP_LOG_NONE);
+        esp_log_level_set("pn532_driver_hsu", ESP_LOG_NONE);
     } else {
         debug_enabled = true;
-        debug("Debug enabled");
+        esp_log_set_level_master(ESP_LOG_DEBUG);
+        esp_log_level_set(TAG, ESP_LOG_DEBUG);
+        esp_log_level_set("pn532_driver", ESP_LOG_DEBUG);
+        esp_log_level_set("pn532_driver_hsu", ESP_LOG_DEBUG);
+        ESP_LOGD(TAG, "Debug enabled");
     }
     return 0;
 }
@@ -169,10 +227,10 @@ static int toggle_debug(int argc, char **argv) {
 static void register_nfc_scan(void)
 {
     const esp_console_cmd_t cmd = {
-            .command = "scan",
-            .help = "Scan for a NFC tag",
+            .command = "uuid",
+            .help = "Read the UUID of a tag (if present)",
             .hint = NULL,
-            .func = &scan_nfc,
+            .func = &uuid,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&cmd));
     const esp_console_cmd_t cmd2 = {
@@ -189,6 +247,13 @@ static void register_nfc_scan(void)
             .func = &toggle_debug,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&cmd3));
+    const esp_console_cmd_t cmd4 = {
+            .command = "read",
+            .help = "Reads a tag. First parameter is the UUID in hex. Second parameter is optional, and is the 32 bit password.",
+            .hint = NULL,
+            .func = &read_tag,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd4));
 }
 
 extern "C" void app_main(void) {

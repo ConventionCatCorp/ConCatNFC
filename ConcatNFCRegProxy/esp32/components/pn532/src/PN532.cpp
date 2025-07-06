@@ -182,16 +182,13 @@ esp_err_t PN532::pn532_read_passive_target_id(
     /* Card appears to be Mifare Classic */
     *uid_length = pn532_packetbuffer[12];
 #ifdef CONFIG_MIFAREDEBUG
-    printf("UID:");
+    ESP_LOGD(TAG, "UID:");
 #endif
     for (uint8_t i = 0; i < pn532_packetbuffer[12]; i++) {
         uid[i] = pn532_packetbuffer[13 + i];
-#ifdef CONFIG_MIFAREDEBUG
-        printf(" 0x%.2X", uid[i]);
-#endif
     }
 #ifdef CONFIG_MIFAREDEBUG
-    printf("\n");
+    ESP_LOG_BUFFER_HEX_LEVEL(TAG, uid, pn532_packetbuffer[12], ESP_LOG_DEBUG);
 #endif
 
     return ESP_OK;

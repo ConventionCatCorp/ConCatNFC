@@ -177,7 +177,7 @@ esp_err_t PN532Interface::pn532_write_command(const uint8_t *cmd, uint8_t cmdlen
 
 #ifdef CONFIG_PN532DEBUG
     ESP_LOGD(TAG, "%s Sending :", __func__);
-    esp_log_buffer_hex(TAG, command, idx);
+    ESP_LOG_BUFFER_HEX_LEVEL(TAG, command, idx, ESP_LOG_DEBUG);
 #endif
 
 //    vTaskDelay(pdMS_TO_TICKS(100));
@@ -226,7 +226,7 @@ esp_err_t PN532Interface::pn532_read_data(uint8_t *buffer, uint8_t length, int32
 
 #ifdef CONFIG_PN532DEBUG
     ESP_LOGD(TAG, "Reading: ");
-    esp_log_buffer_hex(TAG, local_buffer, length);
+    ESP_LOG_BUFFER_HEX_LEVEL(TAG, local_buffer, length, ESP_LOG_DEBUG);
 #endif
 
     // copy data without preamble

@@ -3,6 +3,7 @@
 
 #include "esp_system.h"
 #include "PN532.h"
+#include "ConCatTag.h"
 
 struct returnData {
     bool success;
@@ -11,6 +12,6 @@ struct returnData {
 };
 
 esp_err_t get_uuid(PN532 *nfc, uint8_t *uuid, uint8_t *uidLength);
-returnData read_tag_data(PN532 *nfc, uint8_t expectedUUID[], uint8_t expectedUUIDLength, uint32_t *password);
+returnData read_tag_data(ConCatTag *tags, uint8_t expectedUUID[], uint8_t expectedUUIDLength, uint32_t *password);
 
 #endif

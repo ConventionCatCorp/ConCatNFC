@@ -93,6 +93,9 @@
 #define MIFARE_CMD_STORE                    (0xC2)
 #define MIFARE_ULTRALIGHT_CMD_WRITE         (0xA2)
 
+// NTAG Commands
+#define NTAG_CMD_PWD_AUTH                   (0x1B)
+
 // Prefixes for NDEF Records (to identify record type)
 #define NDEF_URIPREFIX_NONE                 (0x00)
 #define NDEF_URIPREFIX_HTTP_WWWDOT          (0x01)
@@ -214,16 +217,12 @@ public:
     esp_err_t ntag2xx_get_model( NTAG2XX_MODEL *model);
 
 /**
- * Authenticate a page.
- * @param io_handle PN532 io handle
- * @param page page to authenticate
- * @param key buffer containing the 6 byte key for authentication
- * @param uid buffer containing the UID bytes
- * @param uid_length length of the UID
+ * Authenticate with PWD_AUTH command
+ * @param password 4 bytes of password in big endian order
  * @return ESP_OK if successful
  */
     esp_err_t
-    ntag2xx_authenticate( uint8_t page, uint8_t *key, uint8_t *uid, uint8_t uid_length);
+    ntag2xx_authenticate(uint8_t *password);
 
 /**
  * Read a 4 byte page.
@@ -246,5 +245,7 @@ public:
     esp_err_t pn532_auto_poll(
                               uint8_t baud_rate_and_card_type,
                               int32_t timeout);
+
+    esp_err_t pn532_reset_card();
 };
 #endif //CONCAT_NFC_PROXY_ESP32_PN532_H

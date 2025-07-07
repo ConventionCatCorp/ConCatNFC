@@ -15,10 +15,12 @@
 #include "PN532.h"
 #include "PN532InterfaceHSU.h"
 #include "nfc_operations.h"
+#include "ConCatTag.h"
 
 #define TAG "main"
 
 static PN532 *nfc;
+static ConCatTag *Tags;
 esp_err_t err;
 
 bool debug_enabled = false;
@@ -37,6 +39,7 @@ bool setup(void) {
             vTaskDelay(1000 / portTICK_PERIOD_MS);
         }
     } while(err != ESP_OK);
+    Tags = new ConCatTag(nfc);
     printf("init_PN532_SPI success\n");
     return true;
 }
@@ -188,9 +191,9 @@ static int read_tag(int argc, char **argv) {
     returnData ret;
     if (argc == 3) {
         password = strtol(argv[2], NULL, 10);
-        ret = read_tag_data(nfc, uid, 7, &password);
+        ret = read_tag_data(Tags, uid, 7, &password);
     } else {
-        ret = read_tag_data(nfc, uid, 7, NULL);
+        ret = read_tag_data(Tags, uid, 7, NULL);
     }
     if (!ret.success) {
         char buf[256];
@@ -202,6 +205,7 @@ static int read_tag(int argc, char **argv) {
         printf("{\"success\":false,\"error\":\"%s\"}\n", buf);
         return 0;
     }
+    printf("{\"success\":true,\"card\":%s}\n", ret.message);
     return 0;
 }
 
@@ -213,12 +217,16 @@ static int toggle_debug(int argc, char **argv) {
         esp_log_level_set(TAG, ESP_LOG_NONE);
         esp_log_level_set("pn532_driver", ESP_LOG_NONE);
         esp_log_level_set("pn532_driver_hsu", ESP_LOG_NONE);
+        esp_log_level_set("PN532", ESP_LOG_NONE);
+        esp_log_level_set("ConCatTag", ESP_LOG_NONE);
     } else {
         debug_enabled = true;
         esp_log_set_level_master(ESP_LOG_DEBUG);
         esp_log_level_set(TAG, ESP_LOG_DEBUG);
         esp_log_level_set("pn532_driver", ESP_LOG_DEBUG);
         esp_log_level_set("pn532_driver_hsu", ESP_LOG_DEBUG);
+        esp_log_level_set("PN532", ESP_LOG_DEBUG);
+        esp_log_level_set("ConCatTag", ESP_LOG_DEBUG);
         ESP_LOGD(TAG, "Debug enabled");
     }
     return 0;

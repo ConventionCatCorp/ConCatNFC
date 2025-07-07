@@ -1,0 +1,237 @@
+#include <cstring>
+#include "ConCatTag.h"
+#include "mbedtls/base64.h"
+#include <esp_log.h>
+
+
+#define TAG "ConCatTag"
+
+void TagArray::addTag(Tag tag) {
+    tags.push_back(tag);
+}
+
+Tag *TagArray::getTag(uint8_t id) {
+    for (Tag &t : tags)
+    {
+        if (t.getId() == id)
+        {
+            return &t;
+        }
+    }
+    return nullptr;
+}
+
+DoubleUint *TagArray::getAttendeeAndConvention()
+{
+    Tag *tag = getTag(ATTENDEE_CONVENTION_ID);
+    if (tag == nullptr) {
+        return nullptr;
+    }
+    return new DoubleUint(tag->getTagValueDualUInt());
+}
+
+ByteArray *TagArray::getSignature()
+{
+    Tag *tag = getTag(SIGNATURE);
+    if (tag == nullptr) {
+        return nullptr;
+    }
+    return new ByteArray(tag->getTagValueBytes());
+}
+
+uint64_t *TagArray::getIssuance()
+{
+    Tag *tag = getTag(ISSUANCE);
+    if (tag == nullptr) {
+        return nullptr;
+    }
+    return new uint64_t(tag->getTagValueULong());
+}
+
+uint64_t *TagArray::getTimestamp()
+{
+    Tag *tag = getTag(TIMESTAMP);
+    if (tag == nullptr) {
+        return nullptr;
+    }
+    return new uint64_t(tag->getTagValueULong());
+}
+
+uint64_t *TagArray::getExpiration()
+{
+    Tag *tag = getTag(EXPIRATION);
+    if (tag == nullptr) {
+        return nullptr;
+    }
+    return new uint64_t(tag->getTagValueULong());
+}
+
+char *TagArray::toJSON()
+{
+    char szBuffer[1024];
+    uint32_t szBufferPos;
+    szBufferPos = sprintf(szBuffer, "{");
+    for (Tag &t : tags) {
+        switch (t.getId()) {
+            case ATTENDEE_CONVENTION_ID: {
+                DoubleUint du = t.getTagValueDualUInt();
+                szBufferPos += sprintf(szBuffer + szBufferPos, R"("attendeeId":%lu,)", du.first);
+                szBufferPos += sprintf(szBuffer + szBufferPos, R"("conventionId":%lu,)", du.second);
+                break;
+            }
+            case SIGNATURE: {
+                ByteArray ba = t.getTagValueBytes();
+                auto *pszBase64 = (unsigned char *)malloc(ba.length * 4 + 1);
+                size_t szBase64Len;
+                mbedtls_base64_encode(pszBase64, ba.length * 4 + 1, &szBase64Len, ba.data, ba.length);
+                szBufferPos += sprintf(szBuffer + szBufferPos, R"("signature":"%s",)",
+                                       pszBase64);
+                free(pszBase64);
+                break;
+            }
+            case ISSUANCE:
+                szBufferPos += sprintf(szBuffer + szBufferPos, R"("issuance":%llu,)", t.getTagValueULong());
+                break;
+            case TIMESTAMP:
+                szBufferPos += sprintf(szBuffer + szBufferPos, R"("timestamp":%llu,)", t.getTagValueULong());
+                break;
+            case EXPIRATION:
+                szBufferPos += sprintf(szBuffer + szBufferPos, R"("expiration":%llu,)", t.getTagValueULong());
+                break;
+        }
+    }
+    szBuffer[szBufferPos - 1] = '}';
+    szBuffer[szBufferPos] = '\0';
+    return strdup(szBuffer);
+}
+
+Tag::Tag(uint8_t in_id, ByteArray in_data): data(in_data.data, in_data.length) {
+    id = in_id;
+}
+
+uint64_t Tag::getTagValueULong() {
+    switch (data.length) {
+        case 4:
+            return data.data[0] << 24 | data.data[1] << 16 | data.data[2] << 8 | data.data[3];
+        case 8:
+            return (uint64_t(data.data[0]) << 56) |
+                (uint64_t(data.data[1]) << 48) |
+                (uint64_t(data.data[2]) << 40) |
+                (uint64_t(data.data[3]) << 32) |
+                (uint64_t(data.data[4]) << 24) |
+                (uint64_t(data.data[5]) << 16) |
+                (uint64_t(data.data[6]) << 8)  |
+                (uint64_t(data.data[7]));
+        default:
+            return 0;
+    }
+};
+
+DoubleUint Tag::getTagValueDualUInt() {
+    switch (data.length) {
+        case 8:
+        {
+            DoubleUint du;
+            du.first = data.data[0] << 24 | data.data[1] << 16 | data.data[2] << 8 | data.data[3];
+            du.second = data.data[4] << 24 | data.data[5] << 16 | data.data[6] << 8 | data.data[7];
+            return du;
+        }
+        default:
+            return DoubleUint(0, 0);
+    }
+}
+
+ByteArray Tag::getTagValueBytes() {
+    return data;
+}
+
+// Function to convert a 32-bit unsigned integer to big-endian byte array
+void uint32_to_big_endian_bytes(uint32_t value, uint8_t* buffer) {
+    buffer[0] = (value >> 24) & 0xFF; // Most significant byte
+    buffer[1] = (value >> 16) & 0xFF;
+    buffer[2] = (value >> 8) & 0xFF;
+    buffer[3] = value & 0xFF;         // Least significant byte
+}
+
+ConCatTag::ConCatTag(PN532 *i_nfc) {
+    nfc = i_nfc;
+}
+
+bool ConCatTag::unlockTag(uint32_t password) {
+    uint8_t passwordBytes[4];
+    uint32_to_big_endian_bytes(password, passwordBytes);
+    esp_err_t err = nfc->ntag2xx_authenticate(passwordBytes);
+    if (err != ESP_OK) {
+        return false;
+    }
+    return true;
+}
+
+bool ConCatTag::checkIfLocked() {
+    uint8_t data[4];
+    esp_err_t err = nfc->ntag2xx_read_page(0x10, data, 4);
+    if (err != ESP_OK) {
+        return false;
+    }
+    return true;
+}
+
+ByteArray ConCatTag::readPage(uint8_t pageAddress) {
+    if (!tagMemory.contains(pageAddress)) {
+        ESP_LOGI(TAG, "Reading page %d", pageAddress);
+        uint8_t data[4];
+        esp_err_t err = nfc->ntag2xx_read_page(pageAddress, data, 4);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to read page %d", pageAddress);
+            return ByteArray{nullptr, 0};
+        }
+        ESP_LOGI(TAG, "Storing page %d", pageAddress);
+        tagMemory[pageAddress] = new ByteArray(data, 4);
+    }
+    ESP_LOGI(TAG, "Returning page %d", pageAddress);
+    return *tagMemory[pageAddress];
+}
+
+uint8_t ConCatTag::readByte() {
+    ESP_LOGD(TAG, "Reading byte at pos %d", bytePosition);
+    auto thisPage = readPage(tagStartPage + bytePosition / 4);
+    ESP_LOGD(TAG, "Got Page %d: ", tagStartPage + bytePosition / 4);
+    ESP_LOG_BUFFER_HEX_LEVEL(TAG, thisPage.data, 4, ESP_LOG_DEBUG);
+    uint8_t byte = thisPage.data[bytePosition % 4];
+    bytePosition++;
+    return byte;
+}
+
+ByteArray ConCatTag::readBytes(uint8_t length) {
+    ByteArray bytes(length);
+    for (int i = 0; i < length; i++) {
+        bytes.data[i] = readByte();
+    }
+    return bytes;
+}
+
+TagArray ConCatTag::readTags() {
+    auto tags = TagArray();
+    bytePosition = 0;
+    while (true) {
+        uint8_t tag = readByte();
+        if (tag == 0) {
+            break;
+        }
+        ESP_LOGD(TAG, "Tag: %d", tag);
+        auto length = readByte();
+        ESP_LOGD(TAG, "Length: %d", length);
+        auto data = readBytes(length);
+        ESP_LOGD(TAG, "Data: ");
+        ESP_LOG_BUFFER_HEX_LEVEL(TAG, data.data, data.length, ESP_LOG_DEBUG);
+        tags.addTag(Tag(tag, data));
+    }
+
+    return tags;
+}
+
+void ConCatTag::reset() {
+    nfc->pn532_reset_card();
+    tagMemory.clear();
+    bytePosition = 0;
+}

@@ -122,6 +122,37 @@ esp_err_t PN532::pn532_auto_poll(
     return ESP_OK;
 }
 
+esp_err_t PN532::pn532_reset_card() {
+    pn532_packetbuffer[0] = PN532_COMMAND_INATR;
+    pn532_packetbuffer[1] = 0x00;
+
+    esp_err_t err = m_Interface->pn532_send_command_wait_ack(pn532_packetbuffer, 2, PN532_WRITE_TIMEOUT);
+    if (ESP_OK != err) {
+#ifdef CONFIG_PN532DEBUG
+        ESP_LOGD(TAG, "No card(s) read");
+#endif
+        return err;
+    }
+
+#ifdef CONFIG_PN532DEBUG
+    ESP_LOGD(TAG, "Waiting for IRQ (indicates card presence)");
+#endif
+    err = m_Interface->pn532_wait_ready(PN532_READ_TIMEOUT);
+    if (ESP_OK != err) {
+#ifdef CONFIG_PN532DEBUG
+        ESP_LOGD(TAG, "PN532 not ready, timeout or error occurred");
+#endif
+        return err;
+    }
+#ifdef CONFIG_PN532DEBUG
+    ESP_LOGD(TAG, "PN532 ready. Reading data packet");
+#endif
+    err = m_Interface->pn532_read_data(pn532_packetbuffer, 32, 1000);
+    if (ESP_OK != err)
+        return err;
+    return ESP_OK;
+}
+
 esp_err_t PN532::pn532_read_passive_target_id(
                                        uint8_t baud_rate_and_card_type,
                                        uint8_t *uid,
@@ -371,7 +402,7 @@ esp_err_t PN532::ntag2xx_get_model( NTAG2XX_MODEL *model)
     return ESP_OK;
 }
 
-esp_err_t PN532::ntag2xx_authenticate( uint8_t page, uint8_t *key, uint8_t *uid, uint8_t uid_length) {
+/*esp_err_t PN532::ntag2xx_authenticate( uint8_t page, uint8_t *key, uint8_t *uid, uint8_t uid_length) {
     pn532_packetbuffer[0] = PN532_COMMAND_INDATAEXCHANGE;
     pn532_packetbuffer[1] = 1;
     pn532_packetbuffer[2] = MIFARE_CMD_AUTH_A;
@@ -386,6 +417,37 @@ esp_err_t PN532::ntag2xx_authenticate( uint8_t page, uint8_t *key, uint8_t *uid,
     esp_err_t err = m_Interface->pn532_send_command_wait_ack(pn532_packetbuffer, 10 + uid_length, PN532_WRITE_TIMEOUT);
 
     return err;
+}*/
+
+esp_err_t PN532::ntag2xx_authenticate(uint8_t *password) {
+    pn532_packetbuffer[0] = PN532_COMMAND_INCOMMUNICATETHRU;
+    pn532_packetbuffer[1] = NTAG_CMD_PWD_AUTH;
+
+    memcpy(&pn532_packetbuffer[2], password, 4);
+
+    esp_err_t err = m_Interface->pn532_send_command_wait_ack(pn532_packetbuffer, 6, PN532_WRITE_TIMEOUT);
+
+    if (err != ESP_OK) {
+        return err;
+    }
+    ESP_LOGI(TAG, "Reading Auth response");
+
+    uint8_t response[16];
+    err = m_Interface->pn532_read_data(response, 11, PN532_READ_TIMEOUT);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read response: 0x%02x", err);
+        return err;
+    }
+    if (response[5] != 0xd5 || response[6] != 0x43) {
+        ESP_LOGE(TAG, "Unexpected response: 0x%02x 0x%02x", response[5], response[6]);
+        return ESP_FAIL;
+    }
+    if (response[7] != 0x00) {
+        ESP_LOGE(TAG, "Authenitcation failed: 0x%02x", response[7]);
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "Authentication successful");
+    return ESP_OK;
 }
 
 esp_err_t PN532::ntag2xx_read_page( uint8_t page, uint8_t *buffer, size_t read_len)

@@ -16,7 +16,7 @@
 #include "PN532InterfaceHSU.h"
 #include "nfc_operations.h"
 #include "ConCatTag.h"
-
+#include <cJSON.h>
 #define TAG "main"
 
 static PN532 *nfc;
@@ -235,16 +235,20 @@ static int read_tag(int argc, char **argv) {
 }
 
 
-static int write_tags(int argc, char **argv)
-{
-    if (argc < 2) {
-        printf("{\"success\":false,\"error\":\"Not enough arguments\"}\n");
+static int write_tags(int argc, char **argv) {
+    // Validate basic arguments
+    if (argc < 3) {
+        printf("{\"success\":false,\"error\":\"Not enough arguments. Expected UUID and JSON data\"}\n");
         return 0;
     }
+    
+    // Validate UUID
     if (strlen(argv[1]) != 14) {
         printf("{\"success\":false,\"error\":\"Expected UUID length of 14\"}\n");
         return 0;
     }
+    TagArray tagsNew;
+
     uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
     for (int i = 0; i < 7; i++) {
         unsigned long ul;
@@ -259,26 +263,61 @@ static int write_tags(int argc, char **argv)
         uid[i] = ul;
     }
 
+    uint32_t password = strtoul(argv[2], NULL, 10);
 
-    uint32_t password;
-    returnData ret;
-    if (argc == 3) {
-        password = strtol(argv[2], NULL, 10);
-        ret = write_on_card(Tags, uid, 7, &password);   
-    } else {
-        ret = write_on_card(Tags, uid, 7, nullptr);   
+    cJSON *root = cJSON_Parse(argv[3]);
+    if (!root) {
+        printf("{\"success\":false,\"error\":\"Invalid JSON data\"}\n");
+        return 0;
     }
 
+    const char* required_fields[] = {"attendeeId", "conventionId", "issuance", "timestamp", "expiration", "signature"};
+    for (size_t i = 0; i < sizeof(required_fields)/sizeof(required_fields[0]); i++) {
+        if (!cJSON_HasObjectItem(root, required_fields[i])) {
+            printf("{\"success\":false,\"error\":\"Missing required field: %s\"}\n", required_fields[i]);
+            cJSON_Delete(root);
+            return 0;
+        }
+    }
+
+
+    tagsNew.addTag(Tag::NewAttendeeId(cJSON_GetObjectItem(root, "attendeeId")->valueint, cJSON_GetObjectItem(root, "conventionId")->valueint));
+    tagsNew.addTag(Tag::NewIssuance(cJSON_GetObjectItem(root, "issuance")->valueint));
+    tagsNew.addTag(Tag::NewTimestamp(cJSON_GetObjectItem(root, "timestamp")->valueint));
+    tagsNew.addTag(Tag::NewExpiration(cJSON_GetObjectItem(root, "expiration")->valueint));
+
+    // Process signature
+    const char *signature = cJSON_GetObjectItem(root, "signature")->valuestring;
+    int errorType = -1;
+    ByteArray bytes = Tag::ValidateSignatureStructure((unsigned char *)signature, errorType);
+    if (bytes.length == 0) {
+        const char *errorMsg = "Unknown signature error";
+        switch (errorType) {
+            case 0: errorMsg = "Missing signature"; break;
+            case 1: errorMsg = "Unable to decode base64"; break;
+            case 2: errorMsg = "Tag size is invalid"; break;
+        }
+        printf("{\"success\":false,\"error\":\"%s\"}\n", errorMsg);
+        cJSON_Delete(root);
+        return 0;
+    }
+    tagsNew.addTag(Tag::NewSignature(bytes));
+
+    cJSON_Delete(root);
+
+    returnData ret;
+    if (password == 0){
+        ret = write_on_card(tagsNew, Tags, uid, 7, nullptr);
+    }else{
+        ret = write_on_card(tagsNew, Tags, uid, 7, &password);
+    }
     if (!ret.success) {
         char buf[256];
-        if (!ret.message) {
-            sprintf(buf, "Error %d", ret.errorCode);
-        } else {
-            sprintf(buf, "%s", ret.message);
-        }
+        snprintf(buf, sizeof(buf), "%s", ret.message ? ret.message : "Unknown error");
         printf("{\"success\":false,\"error\":\"%s\"}\n", buf);
         return 0;
     }
+    
     printf("{\"success\":true,\"card\":%s}\n", ret.message);
     return 0;
 }

@@ -296,7 +296,7 @@ bool ConCatTag::writePage(uint8_t pageAddress, ByteArray data) {
         ESP_LOGE(TAG, "Failed to read page %d", pageAddress);
         return false;
     }
-    ESP_LOGI(TAG, "Write page success %d with %d", pageAddress, err);
+    ESP_LOGI(TAG, "Write page success %d with error %d", pageAddress, err);
     return true;
 }
 
@@ -368,6 +368,7 @@ bool ConCatTag::writeTags(TagArray &tags){
             return false;
         }
         auto bArr = t.getTagValueBytes();
+        bytes[writePos++] = bArr.length;
         for (uint16_t i=0;i<bArr.length;i++){
             bytes[writePos++] = bArr.data[i];
             if (writePos >= 1000){
@@ -387,6 +388,8 @@ bool ConCatTag::writeTags(TagArray &tags){
         for (; bytesInChunk < 4 && bytesWritten < writePos; bytesInChunk++) {
             chunk[bytesInChunk] = bytes[bytesWritten++];
         }
+        ESP_LOGD(TAG, "Sending chunk of sized 4: ");
+        ESP_LOG_BUFFER_HEX_LEVEL(TAG, chunk, 4, ESP_LOG_DEBUG);
        
         ByteArray chunkData(chunk, 4);
         

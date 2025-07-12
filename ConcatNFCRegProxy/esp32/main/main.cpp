@@ -237,7 +237,38 @@ static int read_tag(int argc, char **argv) {
 
 static int write_tags(int argc, char **argv)
 {
-    returnData ret = write_on_card(Tags);
+    if (argc < 2) {
+        printf("{\"success\":false,\"error\":\"Not enough arguments\"}\n");
+        return 0;
+    }
+    if (strlen(argv[1]) != 14) {
+        printf("{\"success\":false,\"error\":\"Expected UUID length of 14\"}\n");
+        return 0;
+    }
+    uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
+    for (int i = 0; i < 7; i++) {
+        unsigned long ul;
+        char pByte[3];
+        memcpy(pByte, &argv[1][i * 2], 2);
+        pByte[2] = '\0';
+        ul = strtol(pByte, NULL, 16);
+        if (ul == ULONG_MAX || ul > 256) {
+            printf("{\"success\":false,\"error\":\"Invalid UUID\"}\n");
+            return 0;
+        }
+        uid[i] = ul;
+    }
+
+
+    uint32_t password;
+    returnData ret;
+    if (argc == 3) {
+        password = strtol(argv[2], NULL, 10);
+        ret = write_on_card(Tags, uid, 7, &password);   
+    } else {
+        ret = write_on_card(Tags, uid, 7, nullptr);   
+    }
+
     if (!ret.success) {
         char buf[256];
         if (!ret.message) {

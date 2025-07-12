@@ -16,15 +16,16 @@ bool is_valid_tag(ConCatTag *tags) {
     return tags->IsTagModelValid();
 }
 
-returnData write_on_card(ConCatTag *tags) {
+returnData write_on_card(ConCatTag *tags, uint8_t expectedUUID[], uint8_t expectedUUIDLength, uint32_t *password) {
     //Just so we can test the writing.
     returnData ret;
+    memset(&ret, 0, sizeof(returnData));
     TagArray tagsNew;
 
     tagsNew.addTag(Tag::NewAttendeeId(9, 99));
     tagsNew.addTag(Tag::NewIssuance(6969696));
     tagsNew.addTag(Tag::NewTimestamp(686868));
-    /*tagsNew.addTag(Tag::NewExpiration(1337676));
+    tagsNew.addTag(Tag::NewExpiration(1337676));
 
     unsigned char *signature = (unsigned char *)"MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MGFzZGY=";
     int errorType = -1;
@@ -45,7 +46,34 @@ returnData write_on_card(ConCatTag *tags) {
         }
     }
 
-    tagsNew.addTag(Tag::NewSignature(bytes));*/
+    tagsNew.addTag(Tag::NewSignature(bytes));
+    uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
+    uint8_t uidLength;  
+    esp_err_t err = get_uuid(tags->nfc, uid, &uidLength);
+    if (err != ESP_OK) {
+        ret.errorCode = err;
+        ret.success = false;
+        return ret;
+    }
+    if (expectedUUIDLength != uidLength || memcmp(expectedUUID, uid, uidLength) != 0) {
+        ret.success = false;
+        ret.message = (char*)"UUID mismatch";
+        return ret;
+    }
+    if (!is_valid_tag(tags)){
+        ret.success = false;
+        ret.message = (char*)"Only NXP NTAG21x supports password";
+        return ret;
+    }
+    if (password != NULL) {
+        ret.success = tags->unlockTag(*password);
+        if (!ret.success) {
+            ret.message = (char*)"Unlock failed";
+            return ret;
+        }
+    }
+
+
 
     if (!tags->writeTags(tagsNew)){
         ret.success = false;

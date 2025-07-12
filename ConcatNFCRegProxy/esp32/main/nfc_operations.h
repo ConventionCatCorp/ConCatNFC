@@ -10,7 +10,8 @@ struct returnData {
     esp_err_t errorCode;
     char *message;
 };
-
+returnData write_on_card(ConCatTag *tags);
+bool is_valid_tag(ConCatTag *tags);
 esp_err_t get_uuid(PN532 *nfc, uint8_t *uuid, uint8_t *uidLength);
 returnData read_tag_data(ConCatTag *tags, uint8_t expectedUUID[], uint8_t expectedUUIDLength, uint32_t *password);
 

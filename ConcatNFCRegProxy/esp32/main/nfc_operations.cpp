@@ -11,6 +11,54 @@ esp_err_t get_uuid(PN532 *nfc, uint8_t *uuid, uint8_t *uidLength) {
     return nfc->pn532_read_passive_target_id(PN532_BRTY_ISO14443A_106KBPS, uuid, uidLength, 1000);
 }
 
+bool is_valid_tag(ConCatTag *tags) {
+    ESP_LOGD(TAG, "Get tag type");
+    return tags->IsTagModelValid();
+}
+
+returnData write_on_card(ConCatTag *tags) {
+    //Just so we can test the writing.
+    returnData ret;
+    TagArray tagsNew;
+
+    tagsNew.addTag(Tag::NewAttendeeId(9, 99));
+    tagsNew.addTag(Tag::NewIssuance(6969696));
+    tagsNew.addTag(Tag::NewTimestamp(686868));
+    /*tagsNew.addTag(Tag::NewExpiration(1337676));
+
+    unsigned char *signature = (unsigned char *)"MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MGFzZGY=";
+    int errorType = -1;
+    ByteArray bytes = Tag::ValidateSignatureStructure(signature, errorType);
+    if (bytes.length == 0){
+        if (errorType == 0){
+            ret.success = false;
+            ret.message = (char*)"Missing signature";
+            return ret;
+        }else if (errorType == 1){
+            ret.success = false;
+            ret.message = (char*)"Unable to decode base64";
+            return ret;
+        }else if (errorType == 2){
+            ret.success = false;
+            ret.message = (char*)"Tag size is invalid";
+            return ret;
+        }
+    }
+
+    tagsNew.addTag(Tag::NewSignature(bytes));*/
+
+    if (!tags->writeTags(tagsNew)){
+        ret.success = false;
+        ret.message = (char*)"oh shit, failed to write :(";
+        return ret;
+    }
+    auto tagJson = tagsNew.toJSON();
+    ret.message = tagJson;
+    ret.success = true;
+    return ret;
+
+}
+
 returnData read_tag_data(ConCatTag *tags, uint8_t expectedUUID[], uint8_t expectedUUIDLength, uint32_t *password) {
     returnData ret;
     memset(&ret, 0, sizeof(returnData));
@@ -26,13 +74,18 @@ returnData read_tag_data(ConCatTag *tags, uint8_t expectedUUID[], uint8_t expect
     }
     if (expectedUUIDLength != uidLength || memcmp(expectedUUID, uid, uidLength) != 0) {
         ret.success = false;
-        ret.message = "UUID mismatch";
+        ret.message = (char*)"UUID mismatch";
+        return ret;
+    }
+    if (!is_valid_tag(tags)){
+        ret.success = false;
+        ret.message = (char*)"Only NXP NTAG21x supports password";
         return ret;
     }
     if (password != NULL) {
         ret.success = tags->unlockTag(*password);
         if (!ret.success) {
-            ret.message = "Unlock failed";
+            ret.message = (char*)"Unlock failed";
             return ret;
         }
     }

@@ -1,13 +1,36 @@
 #include <cstring>
+#include <vector>
 #include "ConCatTag.h"
 #include "mbedtls/base64.h"
 #include <esp_log.h>
-
+#include "mbedtls/base64.h"
 
 #define TAG "ConCatTag"
 
+std::vector<uint8_t> uint32ToBytes(uint32_t value) {
+    std::vector<uint8_t> bytes(4);
+    bytes[0] = static_cast<uint8_t>((value >> 24) & 0xFF);
+    bytes[1] = static_cast<uint8_t>((value >> 16) & 0xFF);
+    bytes[2] = static_cast<uint8_t>((value >> 8) & 0xFF);
+    bytes[3] = static_cast<uint8_t>(value & 0xFF);
+    return bytes;
+}
+
+// Helper function to convert uint64_t to big-endian bytes
+std::vector<uint8_t> uint64ToBytes(uint64_t value) {
+    std::vector<uint8_t> bytes(8);
+    for (int i = 0; i < 8; ++i) {
+        bytes[i] = static_cast<uint8_t>((value >> (56 - i * 8)) & 0xFF);
+    }
+    return bytes;
+}
+
 void TagArray::addTag(Tag tag) {
     tags.push_back(tag);
+}
+
+std::vector<Tag> TagArray::getTags(){
+    return tags;
 }
 
 Tag *TagArray::getTag(uint8_t id) {
@@ -105,9 +128,73 @@ char *TagArray::toJSON()
     return strdup(szBuffer);
 }
 
+Tag Tag::NewAttendeeId(uint32_t attendeeId, uint32_t conventionId) {
+    std::vector<uint8_t> data;
+    auto attendeeBytes = uint32ToBytes(attendeeId);
+    auto conventionBytes = uint32ToBytes(conventionId);
+    
+    data.insert(data.end(), attendeeBytes.begin(), attendeeBytes.end());
+    data.insert(data.end(), conventionBytes.begin(), conventionBytes.end());
+    
+    return Tag(ATTENDEE_CONVENTION_ID, ByteArray(data.data(), data.size()));
+}
+
+Tag Tag::NewIssuance(uint64_t issuance) {
+    auto bytes = uint64ToBytes(issuance);
+    return Tag(ISSUANCE, ByteArray(bytes.data(), bytes.size()));
+}
+
+Tag Tag::NewTimestamp(uint64_t timestamp) {
+    auto bytes = uint64ToBytes(timestamp);
+    return Tag(TIMESTAMP, ByteArray(bytes.data(), bytes.size()));
+}
+
+Tag Tag::NewExpiration(uint64_t expiration) {
+    auto bytes = uint64ToBytes(expiration);
+    return Tag(EXPIRATION, ByteArray(bytes.data(), bytes.size()));
+}
+
+Tag Tag::NewSignature(ByteArray signature) {
+    return Tag(SIGNATURE, signature);
+}
+
+ByteArray Tag::ValidateSignatureStructure(unsigned char *signature, int &errorType){
+    if (signature == nullptr){
+        errorType = 0;
+        return ByteArray(nullptr, 0);
+    }   
+    size_t output_len = 0;
+    unsigned char* output = new unsigned char[256];
+    int ret = mbedtls_base64_decode(
+        output, 
+        256,
+        &output_len,
+        signature,
+        strlen((const char*)signature)
+    );
+
+    if (ret != 0) {
+        ESP_LOGE(TAG, "Base64 decode failed");
+        errorType = 1;
+        return ByteArray(nullptr, 0);
+    }
+
+    if (output_len != SIGNATURE_LENGTH) {
+        delete []output;
+        errorType = 2;
+        ESP_LOGE(TAG, "Base64 size mismatch");
+        return ByteArray(nullptr, 0);
+    }
+
+    ByteArray result(output, SIGNATURE_LENGTH);
+    delete []output;
+    return result;
+}
+
 Tag::Tag(uint8_t in_id, ByteArray in_data): data(in_data.data, in_data.length) {
     id = in_id;
 }
+
 
 uint64_t Tag::getTagValueULong() {
     switch (data.length) {
@@ -157,6 +244,24 @@ ConCatTag::ConCatTag(PN532 *i_nfc) {
     nfc = i_nfc;
 }
 
+bool ConCatTag::IsTagModelValid(){
+    NTAG2XX_MODEL ntag_model = NTAG2XX_UNKNOWN;
+    esp_err_t err = nfc->ntag2xx_get_model(&ntag_model);
+    if (err != ESP_OK)
+        return false;
+
+    switch (ntag_model) {
+        case NTAG2XX_NTAG213:
+            return true;
+        case NTAG2XX_NTAG215:
+            return true;
+        case NTAG2XX_NTAG216:
+            return true;
+        default:
+            return false;
+    }
+}
+
 bool ConCatTag::unlockTag(uint32_t password) {
     uint8_t passwordBytes[4];
     uint32_to_big_endian_bytes(password, passwordBytes);
@@ -173,6 +278,25 @@ bool ConCatTag::checkIfLocked() {
     if (err != ESP_OK) {
         return false;
     }
+    return true;
+}
+
+bool ConCatTag::writePage(uint8_t pageAddress, ByteArray data) {
+    if (data.length != 4){
+        ESP_LOGI(TAG, "Error writing page with size %d", data.length);
+        return false;
+    }
+    if (data.data == nullptr){
+        return false;
+    }
+    ESP_LOGI(TAG, "Writing page %d", pageAddress);
+    ESP_LOG_BUFFER_HEX_LEVEL(TAG, data.data, 4, ESP_LOG_DEBUG);
+    esp_err_t err = nfc->ntag2xx_write_page(pageAddress, data.data);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read page %d", pageAddress);
+        return false;
+    }
+    ESP_LOGI(TAG, "Write page success %d with %d", pageAddress, err);
     return true;
 }
 
@@ -195,6 +319,9 @@ ByteArray ConCatTag::readPage(uint8_t pageAddress) {
 uint8_t ConCatTag::readByte() {
     ESP_LOGD(TAG, "Reading byte at pos %d", bytePosition);
     auto thisPage = readPage(tagStartPage + bytePosition / 4);
+    if (thisPage.data == nullptr){
+        return 0;
+    }
     ESP_LOGD(TAG, "Got Page %d: ", tagStartPage + bytePosition / 4);
     ESP_LOG_BUFFER_HEX_LEVEL(TAG, thisPage.data, 4, ESP_LOG_DEBUG);
     uint8_t byte = thisPage.data[bytePosition % 4];
@@ -229,6 +356,52 @@ TagArray ConCatTag::readTags() {
 
     return tags;
 }
+
+bool ConCatTag::writeTags(TagArray &tags){
+    uint8_t page = tagStartPage;
+    uint8_t *bytes = new uint8_t[1024];
+    uint16_t writePos = 0;
+    for (Tag &t : tags.getTags()) {
+        bytes[writePos++] = t.getId();
+        if (writePos >= 1000){
+            delete []bytes;
+            return false;
+        }
+        auto bArr = t.getTagValueBytes();
+        for (uint16_t i=0;i<bArr.length;i++){
+            bytes[writePos++] = bArr.data[i];
+            if (writePos >= 1000){
+                delete []bytes;
+                return false;
+            }
+        }
+    }
+    ESP_LOGD(TAG, "Data to be  writen: ");
+    ESP_LOG_BUFFER_HEX_LEVEL(TAG, bytes, writePos, ESP_LOG_DEBUG);
+    uint16_t bytesWritten = 0;
+    
+    while (bytesWritten < writePos) {
+        uint8_t chunk[4] = {0, 0, 0, 0}; 
+        uint8_t bytesInChunk = 0;
+        
+        for (; bytesInChunk < 4 && bytesWritten < writePos; bytesInChunk++) {
+            chunk[bytesInChunk] = bytes[bytesWritten++];
+        }
+       
+        ByteArray chunkData(chunk, 4);
+        
+
+        if (!writePage(page, chunkData)) {
+            delete []bytes;
+            return false; 
+        }
+
+        page++;
+    }
+    delete []bytes;
+    return true; 
+}
+
 
 void ConCatTag::reset() {
     nfc->pn532_reset_card();

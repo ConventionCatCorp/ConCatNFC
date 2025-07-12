@@ -7,6 +7,8 @@
 #include "PN532.h"
 #include "string.h"
 
+#define SIGNATURE_LENGTH 74
+
 class ByteArray {
 public:
     ByteArray(uint8_t *in_data, size_t in_length) {
@@ -53,6 +55,13 @@ public:
     DoubleUint getTagValueDualUInt();
     ByteArray getTagValueBytes();
 
+    static Tag NewAttendeeId(uint32_t attendeeId, uint32_t conventionId);
+    static Tag NewIssuance(uint64_t issuance);
+    static Tag NewTimestamp(uint64_t timestamp);
+    static Tag NewExpiration(uint64_t expiration);
+    static Tag NewSignature(ByteArray signature);
+    static ByteArray ValidateSignatureStructure(unsigned char *signature, int &errorType);
+
     uint8_t getId() {
         return id;
     }
@@ -71,6 +80,7 @@ public:
     uint64_t *getTimestamp();
     uint64_t *getExpiration();
     char *toJSON();
+    std::vector<Tag> getTags();
 
 private:
     std::vector<Tag> tags;
@@ -79,12 +89,15 @@ private:
 class ConCatTag {
 public:
     ConCatTag(PN532 *nfc);
+    bool IsTagModelValid();
     bool unlockTag(uint32_t password);
     bool checkIfLocked();
     ByteArray readPage(uint8_t pageAddress);
     uint8_t readByte();
     ByteArray readBytes(uint8_t length);
     TagArray readTags();
+    bool writeTags(TagArray &tags);
+    bool writePage(uint8_t pageAddress, ByteArray data);
 
     void reset();
 

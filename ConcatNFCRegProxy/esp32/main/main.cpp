@@ -31,6 +31,9 @@ bool setup(void) {
     PN532Interface *interface = new PN532InterfaceHSU(GPIO_NUM_19, GPIO_NUM_18, GPIO_NUM_NC, GPIO_NUM_NC, UART_NUM_1, 115200);
     nfc = new PN532(interface);
 
+    gpio_reset_pin(GPIO_NUM_5);
+    gpio_set_direction(GPIO_NUM_5, GPIO_MODE_OUTPUT);
+
     do {
         err = nfc->m_Interface->pn532_init();
         if (err != ESP_OK) {
@@ -147,7 +150,7 @@ static int uuid(int argc, char **argv)
     uint8_t uidLength;                        // Length of the UID (4 or 7 bytes depending on ISO14443A card type)
 
     ESP_LOGD(TAG, "Waiting for an ISO14443A Card...");
-
+    
     // Wait for an ISO14443A type cards (Mifare, etc.) with a timeout.
     err = get_uuid(nfc, uid, &uidLength);
 
@@ -161,6 +164,27 @@ static int uuid(int argc, char **argv)
     } else {
         ESP_LOGD(TAG, "Could not find a card.");
         printf("{\"success\":false,\"error\":\"Could not find a card\"}\n");
+    }
+    return 0;
+}
+
+static int detect_loop(int argc, char **argv)
+{
+    while (1){
+        uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
+        uint8_t uidLength;                        // Length of the UID (4 or 7 bytes depending on ISO14443A card type)
+
+        err = get_uuid(nfc, uid, &uidLength);
+
+        if (err == ESP_OK) {
+            gpio_set_level(GPIO_NUM_5, 1); 
+            char *hex = bin2hex(uid, uidLength, 0);
+            printf("{\"uuid\":\"%s\",\"success\":true}\n", hex);
+            free(hex);
+        }else{
+            gpio_set_level(GPIO_NUM_5, 0);
+        }
+        vTaskDelay(200 / portTICK_PERIOD_MS);
     }
     return 0;
 }
@@ -187,6 +211,7 @@ static int read_tag(int argc, char **argv) {
         }
         uid[i] = ul;
     }
+
     uint32_t password;
     returnData ret;
     if (argc == 3) {
@@ -195,6 +220,24 @@ static int read_tag(int argc, char **argv) {
     } else {
         ret = read_tag_data(Tags, uid, 7, NULL);
     }
+    if (!ret.success) {
+        char buf[256];
+        if (!ret.message) {
+            sprintf(buf, "Error %d", ret.errorCode);
+        } else {
+            sprintf(buf, "%s", ret.message);
+        }
+        printf("{\"success\":false,\"error\":\"%s\"}\n", buf);
+        return 0;
+    }
+    printf("{\"success\":true,\"card\":%s}\n", ret.message);
+    return 0;
+}
+
+
+static int write_tags(int argc, char **argv)
+{
+    returnData ret = write_on_card(Tags);
     if (!ret.success) {
         char buf[256];
         if (!ret.message) {
@@ -262,6 +305,20 @@ static void register_nfc_scan(void)
             .func = &read_tag,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&cmd4));
+    const esp_console_cmd_t cmd5 = {
+            .command = "detect",
+            .help = "keep detecting",
+            .hint = NULL,
+            .func = &detect_loop,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd5));
+    const esp_console_cmd_t cmd6 = {
+            .command = "write",
+            .help = "write test",
+            .hint = NULL,
+            .func = &write_tags,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd6));
 }
 
 extern "C" void app_main(void) {

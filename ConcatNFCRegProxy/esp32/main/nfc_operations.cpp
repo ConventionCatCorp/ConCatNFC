@@ -56,14 +56,14 @@ returnData write_on_card(TagArray tagsNew, ConCatTag *tags, uint8_t expectedUUID
         ret.message = (char*)"oh shit, failed to write :(";
         return ret;
     }
-    auto tagJson = tagsNew.toJSON();
+    auto tagJson = tagsNew.toStruct().toJSON();
     ret.message = tagJson;
     ret.success = true;
     return ret;
 
 }
 
-returnData read_tag_data(ConCatTag *tags, uint8_t expectedUUID[], uint8_t expectedUUIDLength, uint32_t *password) {
+returnData read_tag_data(CardDefinition &tagsRead, ConCatTag *tags, uint8_t expectedUUID[], uint8_t expectedUUIDLength, uint32_t *password) {
     returnData ret;
     memset(&ret, 0, sizeof(returnData));
 
@@ -95,7 +95,8 @@ returnData read_tag_data(ConCatTag *tags, uint8_t expectedUUID[], uint8_t expect
     }
     auto tagData = tags->readTags();
     tags->reset();
-    auto tagJson = tagData.toJSON();
+    tagsRead = tagData.toStruct();
+    auto tagJson = tagsRead.toJSON();
     ret.message = tagJson;
     ret.success = true;
     return ret;

@@ -220,11 +220,13 @@ static int read_tag(int argc, char **argv) {
 
     uint32_t password;
     returnData ret;
+
+    CardDefinition def;
     if (argc == 3) {
         password = strtol(argv[2], NULL, 10);
-        ret = read_tag_data(Tags, uid, 7, &password);
+        ret = read_tag_data(def, Tags, uid, 7, &password);
     } else {
-        ret = read_tag_data(Tags, uid, 7, NULL);
+        ret = read_tag_data(def, Tags, uid, 7, NULL);
     }
     if (!ret.success) {
         char buf[256];
@@ -237,10 +239,80 @@ static int read_tag(int argc, char **argv) {
         return 0;
     }
     printf("{\"success\":true,\"card\":%s}\n", ret.message);
+    def.Free();
     return 0;
 }
 
 
+static int update_tags(int argc, char **argv) {
+    if (argc < 3) {
+        printf("{\"success\":false,\"error\":\"Not enough arguments. Expected UUID and JSON data\"}\n");
+        return 0;
+    }
+    
+    // Validate UUID
+    if (strlen(argv[1]) != 14) {
+        printf("{\"success\":false,\"error\":\"Expected UUID length of 14\"}\n");
+        return 0;
+    }
+    TagArray tagsNew;
+
+    uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
+    for (int i = 0; i < 7; i++) {
+        unsigned long ul;
+        char pByte[3];
+        memcpy(pByte, &argv[1][i * 2], 2);
+        pByte[2] = '\0';
+        ul = strtol(pByte, NULL, 16);
+        if (ul == ULONG_MAX || ul > 256) {
+            printf("{\"success\":false,\"error\":\"Invalid UUID\"}\n");
+            return 0;
+        }
+        uid[i] = ul;
+    }
+
+    uint32_t password = strtoul(argv[2], NULL, 10);
+
+    cJSON *root = cJSON_Parse(argv[3]);
+    if (!root) {
+        printf("{\"success\":false,\"error\":\"Invalid JSON data\"}\n");
+        return 0;
+    }
+
+    returnData ret;
+    CardDefinition def;
+    
+    if (password != 0){
+        ret = read_tag_data(def, Tags, uid, 7, &password);
+    } else {
+        ret = read_tag_data(def, Tags, uid, 7, NULL);
+    }
+
+    if (cJSON_HasObjectItem(root, "attendeeId")){
+        def.attendee_id = cJSON_GetObjectItem(root, "attendeeId")->valueint;
+    }
+    if (cJSON_HasObjectItem(root, "conventionId")) {
+        def.convention_id = cJSON_GetObjectItem(root, "conventionId")->valueint;
+    }
+    if (cJSON_HasObjectItem(root, "signature")) {
+        const char* sig = cJSON_GetObjectItem(root, "signature")->valuestring;
+        strncpy(def.signature, sig, sizeof(def.signature) - 1);
+        def.signature[sizeof(def.signature) - 1] = '\0'; // Ensure null-termination
+    }
+    if (cJSON_HasObjectItem(root, "issuance")) {
+        def.issuance = cJSON_GetObjectItem(root, "issuance")->valueint;
+    }
+    if (cJSON_HasObjectItem(root, "timestamp")) {
+        def.timestamp = cJSON_GetObjectItem(root, "timestamp")->valueint;
+    }
+    if (cJSON_HasObjectItem(root, "expiration")) {
+        def.expiration = cJSON_GetObjectItem(root, "expiration")->valueint;
+    }
+    ret.message = def.toJSON();
+    printf("{\"success\":true,\"card\":%s}\n", ret.message);
+    def.Free();
+    return 0;
+}
 static int write_tags(int argc, char **argv) {
     // Validate basic arguments
     if (argc < 3) {
@@ -390,11 +462,18 @@ static void register_nfc_scan(void)
     ESP_ERROR_CHECK(esp_console_cmd_register(&cmd5));
     const esp_console_cmd_t cmd6 = {
             .command = "write",
-            .help = "write test",
+            .help = "write UUID password {json}",
             .hint = NULL,
             .func = &write_tags,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&cmd6));
+    const esp_console_cmd_t cmd7 = {
+            .command = "update",
+            .help = "update UUID password {json}",
+            .hint = NULL,
+            .func = &update_tags,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd7));
 }
 
 extern "C" void app_main(void) {

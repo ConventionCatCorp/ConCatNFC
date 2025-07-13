@@ -89,17 +89,16 @@ uint64_t *TagArray::getExpiration()
     return new uint64_t(tag->getTagValueULong());
 }
 
-char *TagArray::toJSON()
-{
-    char szBuffer[1024];
-    uint32_t szBufferPos;
-    szBufferPos = sprintf(szBuffer, "{");
+
+
+CardDefinition TagArray::toStruct(){
+    CardDefinition def;
     for (Tag &t : tags) {
         switch (t.getId()) {
             case ATTENDEE_CONVENTION_ID: {
                 DoubleUint du = t.getTagValueDualUInt();
-                szBufferPos += sprintf(szBuffer + szBufferPos, R"("attendeeId":%lu,)", du.first);
-                szBufferPos += sprintf(szBuffer + szBufferPos, R"("conventionId":%lu,)", du.second);
+                def.attendee_id = du.first;
+                def.convention_id = du.second;
                 break;
             }
             case SIGNATURE: {
@@ -107,25 +106,85 @@ char *TagArray::toJSON()
                 auto *pszBase64 = (unsigned char *)malloc(ba.length * 4 + 1);
                 size_t szBase64Len;
                 mbedtls_base64_encode(pszBase64, ba.length * 4 + 1, &szBase64Len, ba.data, ba.length);
-                szBufferPos += sprintf(szBuffer + szBufferPos, R"("signature":"%s",)",
-                                       pszBase64);
+                def.signature = strdup((const char*)pszBase64);
                 free(pszBase64);
                 break;
             }
             case ISSUANCE:
-                szBufferPos += sprintf(szBuffer + szBufferPos, R"("issuance":%llu,)", t.getTagValueULong());
+                def.issuance = t.getTagValueULong();
                 break;
             case TIMESTAMP:
-                szBufferPos += sprintf(szBuffer + szBufferPos, R"("timestamp":%llu,)", t.getTagValueULong());
+                def.timestamp = t.getTagValueULong();
                 break;
             case EXPIRATION:
-                szBufferPos += sprintf(szBuffer + szBufferPos, R"("expiration":%llu,)", t.getTagValueULong());
+                def.expiration = t.getTagValueULong();
                 break;
         }
     }
-    szBuffer[szBufferPos - 1] = '}';
+    return def;
+}
+
+
+char *CardDefinition::toJSON(){
+    char szBuffer[1024];
+    uint32_t szBufferPos = 0;
+    
+    szBufferPos = sprintf(szBuffer, "{");
+    
+    if (attendee_id != 0) {
+        szBufferPos += sprintf(szBuffer + szBufferPos, R"("attendeeId":%lu,)", attendee_id);
+    }
+
+    if (convention_id != 0){
+        szBufferPos += sprintf(szBuffer + szBufferPos, R"("conventionId":%lu,)", convention_id);
+    }
+    
+    if (signature != nullptr && signature[0] != '\0') {
+        szBufferPos += sprintf(szBuffer + szBufferPos, R"("signature":"%s",)", signature);
+    }
+    
+    // Add issuance if it exists
+    if (issuance != 0) {
+        szBufferPos += sprintf(szBuffer + szBufferPos, R"("issuance":%lu,)", issuance);
+    }
+    
+    // Add timestamp if it exists
+    if (timestamp != 0) {
+        szBufferPos += sprintf(szBuffer + szBufferPos, R"("timestamp":%llu,)", timestamp);
+    }
+
+    if (expiration != 0) {
+        szBufferPos += sprintf(szBuffer + szBufferPos, R"("expiration":%llu,)", expiration);
+    }
+    
+    if (szBufferPos > 1) {
+        szBuffer[szBufferPos - 1] = '}';
+    } else {
+        szBufferPos += sprintf(szBuffer + szBufferPos, "}");
+    }
+    
     szBuffer[szBufferPos] = '\0';
     return strdup(szBuffer);
+}
+
+TagArray CardDefinition::toTagArray(){
+    TagArray tags;
+
+
+    tags.addTag(Tag::NewAttendeeId(attendee_id, convention_id));
+    tags.addTag(Tag::NewIssuance(issuance));
+    tags.addTag(Tag::NewTimestamp(timestamp));
+    tags.addTag(Tag::NewExpiration(expiration));
+   
+    size_t output_len;
+    unsigned char* decoded = (unsigned char*)malloc(strlen(signature) * 3 / 4 + 1);
+    mbedtls_base64_decode(decoded, strlen(signature) * 3 / 4 + 1, &output_len, 
+                             (const unsigned char*)signature, strlen(signature));
+    ByteArray bytes(decoded, output_len);
+    tags.addTag(Tag::NewSignature(bytes));
+    free(decoded);
+
+    return tags;
 }
 
 Tag Tag::NewAttendeeId(uint32_t attendeeId, uint32_t conventionId) {

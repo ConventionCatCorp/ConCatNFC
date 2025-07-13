@@ -13,6 +13,6 @@ struct returnData {
 returnData write_on_card(TagArray tagsNew, ConCatTag *tags, uint8_t expectedUUID[], uint8_t expectedUUIDLength, uint32_t *password);
 bool is_valid_tag(ConCatTag *tags);
 esp_err_t get_uuid(PN532 *nfc, uint8_t *uuid, uint8_t *uidLength);
-returnData read_tag_data(ConCatTag *tags, uint8_t expectedUUID[], uint8_t expectedUUIDLength, uint32_t *password);
+returnData read_tag_data(CardDefinition &tagsRead, ConCatTag *tags, uint8_t expectedUUID[], uint8_t expectedUUIDLength, uint32_t *password);
 
 #endif

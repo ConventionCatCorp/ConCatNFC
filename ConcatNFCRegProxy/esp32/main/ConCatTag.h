@@ -70,6 +70,28 @@ private:
     ByteArray data;
 };
 
+class TagArray;
+
+class CardDefinition{
+    public:
+        CardDefinition():attendee_id(0),convention_id(0),issuance(0),timestamp(0),expiration(0),signature(nullptr){};
+        void Free(){
+            if (signature != nullptr){
+                free(signature);
+                signature = nullptr;
+            }
+        }
+        char *toJSON();
+        TagArray toTagArray();
+
+        uint32_t attendee_id;
+        uint32_t convention_id;
+        uint32_t issuance;
+        uint64_t timestamp;
+        uint64_t expiration;
+        char *signature;        
+};
+
 class TagArray {
 public:
     void addTag(Tag tag);
@@ -79,7 +101,8 @@ public:
     uint64_t *getIssuance();
     uint64_t *getTimestamp();
     uint64_t *getExpiration();
-    char *toJSON();
+    
+    CardDefinition toStruct();
     std::vector<Tag> getTags();
 
 private:

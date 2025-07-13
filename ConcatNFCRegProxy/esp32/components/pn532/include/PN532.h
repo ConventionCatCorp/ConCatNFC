@@ -244,7 +244,8 @@ public:
 
     esp_err_t pn532_auto_poll(
                               uint8_t baud_rate_and_card_type,
-                              int32_t timeout);
+                              int32_t timeout,
+                              uart_port_t uart_port = UART_NUM_MAX);
 
     esp_err_t pn532_reset_card();
 };

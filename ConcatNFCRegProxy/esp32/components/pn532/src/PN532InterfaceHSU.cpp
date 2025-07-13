@@ -188,7 +188,7 @@ esp_err_t PN532InterfaceHSU::pn532_wakeup()
     return uart_wait_tx_done(m_uart_port, pdMS_TO_TICKS(100));
 }
 
-esp_err_t PN532InterfaceHSU::pn532_read(uint8_t *read_buffer, size_t read_size, int xfer_timeout_ms)
+esp_err_t PN532InterfaceHSU::pn532_read(uint8_t *read_buffer, size_t read_size, int xfer_timeout_ms, uart_port_t uart_port_to_monitor)
 {
     if (read_buffer == NULL || read_size < 6) {
         return ESP_ERR_INVALID_ARG;
@@ -200,7 +200,19 @@ esp_err_t PN532InterfaceHSU::pn532_read(uint8_t *read_buffer, size_t read_size, 
     int rx_bytes = 0;
     TickType_t elapsed_ticks = 0;
 
-    rx_bytes = uart_read_bytes(m_uart_port, read_buffer, 6, timeout_ticks);
+    while (elapsed_ticks < timeout_ticks) {
+        rx_bytes = uart_read_bytes(m_uart_port, read_buffer, 6, pdMS_TO_TICKS(100));
+        if (rx_bytes > 0 || rx_bytes < 0) {
+            break;
+        }
+        size_t bytesAvailable;
+        if (ESP_OK == uart_get_buffered_data_len(uart_port_to_monitor, &bytesAvailable)) {
+            if (bytesAvailable > 0) {
+                return ESP_ERR_TIMEOUT;
+            }
+        }
+        elapsed_ticks = xTaskGetTickCount() - start_ticks;
+    }
     if (rx_bytes != 6) {
         if (rx_bytes < 0)
             return ESP_FAIL;
@@ -231,7 +243,20 @@ esp_err_t PN532InterfaceHSU::pn532_read(uint8_t *read_buffer, size_t read_size, 
         bytes_to_read = (int)read_size - 6;
         frame_truncated = true;
     }
-    rx_bytes = uart_read_bytes(m_uart_port, read_buffer + 6, bytes_to_read, timeout_ticks - elapsed_ticks);
+
+    while (elapsed_ticks < timeout_ticks) {
+        rx_bytes = uart_read_bytes(m_uart_port, read_buffer + 6, bytes_to_read, pdMS_TO_TICKS(100));
+        if (rx_bytes > 0 || rx_bytes < 0) {
+            break;
+        }
+        size_t bytesAvailable;
+        if (ESP_OK == uart_get_buffered_data_len(uart_port_to_monitor, &bytesAvailable)) {
+            if (bytesAvailable > 0) {
+                return ESP_ERR_TIMEOUT;
+            }
+        }
+        elapsed_ticks = xTaskGetTickCount() - start_ticks;
+    }
     if (rx_bytes != bytes_to_read) {
         if (rx_bytes < 0)
             return ESP_FAIL;

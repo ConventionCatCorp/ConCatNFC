@@ -11,7 +11,7 @@ public:
     void pn532_release_io() override;
     esp_err_t pn532_init_extra() override;
     esp_err_t pn532_wakeup() override;
-    esp_err_t pn532_read(uint8_t *read_buffer, size_t read_size, int xfer_timeout_ms) override;
+    esp_err_t pn532_read(uint8_t *read_buffer, size_t read_size, int xfer_timeout_ms, uart_port_t uart_port=UART_NUM_MAX) override;
     esp_err_t pn532_write(const uint8_t *write_buffer, size_t write_size, int xfer_timeout_ms) override;
 
 private:

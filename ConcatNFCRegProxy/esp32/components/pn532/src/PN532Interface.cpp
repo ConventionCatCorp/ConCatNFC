@@ -1,5 +1,7 @@
 #include <string.h>
 #include <stdint.h>
+#include <hal/uart_types.h>
+#include <driver/uart.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -209,7 +211,7 @@ esp_err_t PN532Interface::pn532_write_command(const uint8_t *cmd, uint8_t cmdlen
     return result;
 }
 
-esp_err_t PN532Interface::pn532_read_data(uint8_t *buffer, uint8_t length, int32_t timeout)
+esp_err_t PN532Interface::pn532_read_data(uint8_t *buffer, uint8_t length, int32_t timeout, uart_port_t uart_port)
 {
     static uint8_t local_buffer[256];
 
@@ -219,7 +221,7 @@ esp_err_t PN532Interface::pn532_read_data(uint8_t *buffer, uint8_t length, int32
         timeout = -1;
     }
 
-    esp_err_t res = pn532_read(local_buffer, length, timeout);
+    esp_err_t res = pn532_read(local_buffer, length, timeout, uart_port);
     if (res != ESP_OK) {
         return res;
     }
@@ -250,7 +252,7 @@ bool PN532Interface::pn532_is_ready()
     return (x == 0);
 }
 #endif
-esp_err_t PN532Interface::pn532_poll_ready(int32_t timeout)
+esp_err_t PN532Interface::pn532_poll_ready(int32_t timeout, uart_port_t uart_port)
 {
     TickType_t start_ticks = xTaskGetTickCount();
     TickType_t timeout_ticks = (timeout > 0) ? pdMS_TO_TICKS(timeout) : portMAX_DELAY;
@@ -266,17 +268,23 @@ esp_err_t PN532Interface::pn532_poll_ready(int32_t timeout)
             vTaskDelay(pdMS_TO_TICKS(10));
             elapsed_ticks = xTaskGetTickCount() - start_ticks;
         }
+        size_t bytesAvailable;
+        if (ESP_OK == uart_get_buffered_data_len(uart_port, &bytesAvailable)) {
+            if (bytesAvailable > 0) {
+                return ESP_ERR_TIMEOUT;
+            }
+        }
     }
 
     return is_ready ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 
-esp_err_t PN532Interface::pn532_wait_ready(int32_t timeout)
+esp_err_t PN532Interface::pn532_wait_ready(int32_t timeout, uart_port_t uart_port)
 {
     if (m_irq == GPIO_NUM_NC) {
         esp_err_t err = ESP_OK;
         if (m_hasIsReady) {
-            err = pn532_poll_ready(timeout);
+            err = pn532_poll_ready(timeout, uart_port);
         }
         return err;
     }

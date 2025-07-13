@@ -10,6 +10,7 @@
 #define CONFIG_PN532DEBUG
 
 #include <string.h>
+#include <hal/uart_types.h>
 #include "esp_log.h"
 #include "esp_err.h"
 
@@ -88,7 +89,8 @@ esp_err_t PN532::pn532_set_passive_activation_retries( uint8_t maxRetries) {
 
 esp_err_t PN532::pn532_auto_poll(
                           uint8_t baud_rate_and_card_type,
-                          int32_t timeout)
+                          int32_t timeout,
+                          uart_port_t uart_port)
 {
     pn532_packetbuffer[0] = PN532_COMMAND_INAUTOPOLL;
     pn532_packetbuffer[1] = 0xff; // endless polling
@@ -106,7 +108,7 @@ esp_err_t PN532::pn532_auto_poll(
 #ifdef CONFIG_PN532DEBUG
     ESP_LOGD(TAG, "Waiting for IRQ (indicates card presence)");
 #endif
-    err = m_Interface->pn532_wait_ready(timeout);
+    err = m_Interface->pn532_wait_ready(timeout, uart_port);
     if (ESP_OK != err) {
 #ifdef CONFIG_PN532DEBUG
         ESP_LOGD(TAG, "PN532 not ready, timeout or error occurred");
@@ -116,7 +118,7 @@ esp_err_t PN532::pn532_auto_poll(
 #ifdef CONFIG_PN532DEBUG
     ESP_LOGD(TAG, "PN532 ready. Reading data packet");
 #endif
-    err = m_Interface->pn532_read_data(pn532_packetbuffer, 32, timeout);
+    err = m_Interface->pn532_read_data(pn532_packetbuffer, 32, timeout, uart_port);
     if (ESP_OK != err)
         return err;
     return ESP_OK;

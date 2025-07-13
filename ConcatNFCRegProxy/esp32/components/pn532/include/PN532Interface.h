@@ -5,6 +5,7 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include <hal/uart_types.h>
 
 #define PN532_PREAMBLE                      (0x00)
 #define PN532_STARTCODE1                    (0x00)
@@ -31,16 +32,16 @@ public:
     void pn532_release();
     void pn532_reset();
     esp_err_t pn532_write_command(const uint8_t *cmd, uint8_t cmdlen, int timeout);
-    esp_err_t pn532_read_data(uint8_t *buffer, uint8_t length, int32_t timeout);
+    esp_err_t pn532_read_data(uint8_t *buffer, uint8_t length, int32_t timeout, uart_port_t uart_port=UART_NUM_MAX);
     bool pn532_is_ready();
-    esp_err_t pn532_poll_ready(int32_t timeout);
-    esp_err_t pn532_wait_ready(int32_t timeout);
+    esp_err_t pn532_poll_ready(int32_t timeout, uart_port_t uart_port=UART_NUM_MAX);
+    esp_err_t pn532_wait_ready(int32_t timeout, uart_port_t uart_port=UART_NUM_MAX);
     esp_err_t pn532_SAM_config();
     esp_err_t pn532_send_command_wait_ack(const uint8_t *cmd, uint8_t cmd_length, int32_t timeout);
     esp_err_t pn532_read_ack();
 
     virtual esp_err_t pn532_init_io() = 0;
-    virtual esp_err_t pn532_read(uint8_t *read_buffer, size_t read_size, int xfer_timeout_ms) = 0;
+    virtual esp_err_t pn532_read(uint8_t *read_buffer, size_t read_size, int xfer_timeout_ms, uart_port_t uart_port) = 0;
     virtual esp_err_t pn532_write(const uint8_t *write_buffer, size_t write_size, int xfer_timeout_ms) = 0;
     virtual esp_err_t pn532_init_extra() = 0;
     virtual esp_err_t pn532_wakeup() = 0;

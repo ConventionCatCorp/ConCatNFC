@@ -116,7 +116,7 @@ esp_err_t PN532InterfaceI2C::pn532_is_ready()
     return (status == 0x01) ? ESP_OK : ESP_FAIL;
 }
 
-esp_err_t PN532InterfaceI2C::pn532_read(uint8_t *read_buffer, size_t read_size, int xfer_timeout_ms)
+esp_err_t PN532InterfaceI2C::pn532_read(uint8_t *read_buffer, size_t read_size, int xfer_timeout_ms, uart_port_t uart_port_to_monitor)
 {
     static uint8_t rx_buffer[256];
 

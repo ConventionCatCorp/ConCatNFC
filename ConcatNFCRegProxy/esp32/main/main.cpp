@@ -134,7 +134,7 @@ static int wait_for_card(int argc, char **argv)
 {
 
     // Wait for an ISO14443A type cards (Mifare, etc.) with a timeout.
-    err = nfc->pn532_auto_poll(PN532_BRTY_ISO14443A_106KBPS, 60000);
+    err = nfc->pn532_auto_poll(PN532_BRTY_ISO14443A_106KBPS, 60000, UART_NUM_0);
 
     if (err == ESP_OK) {
         printf("Detected\n");
@@ -185,6 +185,12 @@ static int detect_loop(int argc, char **argv)
             gpio_set_level(GPIO_NUM_5, 0);
         }
         vTaskDelay(200 / portTICK_PERIOD_MS);
+        size_t bytesAvailable;
+        if (ESP_OK == uart_get_buffered_data_len(UART_NUM_0, &bytesAvailable)) {
+            if (bytesAvailable > 0) {
+                return 0;
+            }
+        }
     }
     return 0;
 }

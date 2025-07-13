@@ -421,6 +421,99 @@ esp_err_t PN532::ntag2xx_get_model( NTAG2XX_MODEL *model)
     return err;
 }*/
 
+
+esp_err_t PN532::ntag2xx_set_password(uint32_t password) {
+    // First authenticate with the tag (if already protected)
+    uint8_t passwordBytes[4];
+    passwordBytes[0] = (password >> 24) & 0xFF;
+    passwordBytes[1] = (password >> 16) & 0xFF;
+    passwordBytes[2] = (password >> 8) & 0xFF;
+    passwordBytes[3] = password & 0xFF;
+    
+   
+
+    // Determine tag model
+    
+    NTAG2XX_MODEL model;
+    esp_err_t err = ntag2xx_get_model(&model);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get NTAG model");
+        return err;
+    }
+
+    // Set password and protection based on model
+    uint8_t passwordPage;
+    uint8_t configPage;
+    uint8_t auth0Page;
+
+    switch (model) {
+        case NTAG2XX_NTAG213:
+            passwordPage = 0x2B;
+            configPage = 0x29;
+            auth0Page = 0x2A;
+            break;
+        case NTAG2XX_NTAG215:
+            passwordPage = 0x85;
+            configPage = 0x83;
+            auth0Page = 0x84;
+            break;
+        case NTAG2XX_NTAG216:
+            passwordPage = 0xE5;
+            configPage = 0xE3;
+            auth0Page = 0xE4;
+            break;
+        default:
+            ESP_LOGE(TAG, "Unsupported NTAG model");
+            return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    // Write password to password page
+    err = ntag2xx_write_page(passwordPage, passwordBytes);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to write password to page 0x%02X", passwordPage);
+        return err;
+    }
+
+    // Read current configuration
+    uint8_t configData[8]; // We only need 2 pages (8 bytes)
+    err = ntag2xx_read_page(configPage, configData, sizeof(configData));
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read config pages");
+        return err;
+    }
+
+    // Modify configuration:
+    // - Set AUTH0 (page after config) to define protection start
+    // - Set PROT bit in config to enable password protection
+    
+    // Write AUTH0 page (set to 0x00 to protect entire memory)
+    uint8_t auth0Data[4] = {0x00};
+    err = ntag2xx_write_page(auth0Page, auth0Data);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set AUTH0 page");
+        return err;
+    }
+
+    // Update configuration (set PROT bit)
+    configData[4] |= (1 << 7); // Set bit 7 of byte 4 (PROT bit)
+
+    // Write back modified configuration
+    err = ntag2xx_write_page(configPage, configData);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to write config page 0");
+        return err;
+    }
+
+    err = ntag2xx_write_page(configPage + 1, configData + 4);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to write config page 1");
+        return err;
+    }
+
+    ESP_LOGI(TAG, "Password protection set successfully");
+    return ESP_OK;
+}
+
 esp_err_t PN532::ntag2xx_authenticate(uint8_t *password) {
     pn532_packetbuffer[0] = PN532_COMMAND_INCOMMUNICATETHRU;
     pn532_packetbuffer[1] = NTAG_CMD_PWD_AUTH;

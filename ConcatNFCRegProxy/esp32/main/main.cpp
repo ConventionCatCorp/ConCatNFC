@@ -339,6 +339,62 @@ static int update_tags(int argc, char **argv) {
 }
 
 
+static int set_password(int argc, char **argv) {
+    // Validate basic arguments
+    if (argc < 3) {
+        printf("{\"success\":false,\"error\":\"Not enough arguments. Expected UUID and JSON data\"}\n");
+        return 0;
+    }
+    
+    // Validate UUID
+    if (strlen(argv[1]) != 14) {
+        printf("{\"success\":false,\"error\":\"Expected UUID length of 14\"}\n");
+        return 0;
+    }
+  
+
+    uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
+    for (int i = 0; i < 7; i++) {
+        unsigned long ul;
+        char pByte[3];
+        memcpy(pByte, &argv[1][i * 2], 2);
+        pByte[2] = '\0';
+        ul = strtol(pByte, NULL, 16);
+        if (ul == ULONG_MAX || ul > 256) {
+            printf("{\"success\":false,\"error\":\"Invalid UUID\"}\n");
+            return 0;
+        }
+        uid[i] = ul;
+    }
+
+    uint32_t password = strtoul(argv[2], NULL, 10);
+    if (password == 0){
+        printf("{\"success\":false,\"error\":\"Password cannot be 0\"}\n");
+        return 0;
+    }
+
+    uint8_t uidAux[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
+    uint8_t uidLength;  
+    esp_err_t err = get_uuid(Tags->nfc, uidAux, &uidLength);
+    if (err != ESP_OK) {
+        printf("{\"success\":false,\"error\":\"Card not present\"}\n");
+        return 0;
+    }
+    if ( memcmp(uid, uidAux, uidLength) != 0) {
+        printf("{\"success\":false,\"error\":\"UUID Mismatch\"}\n");
+        return 0;
+    }
+    
+    err = set_nfc_password(Tags->nfc, password);
+    if (err != ESP_OK) {
+        printf("{\"success\":false,\"error\":\"%s\"}\n", "Unknown error");
+        return 0;
+    }
+
+    printf("{\"success\":false,\"message\":\"Ok\"}\n");
+    return 0;
+}
+
 static int write_tags(int argc, char **argv) {
     // Validate basic arguments
     if (argc < 3) {
@@ -502,6 +558,13 @@ static void register_nfc_scan(void)
             .func = &update_tags,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&cmd7));
+    const esp_console_cmd_t cmd8 = {
+            .command = "set_password",
+            .help = "set_password UUID password",
+            .hint = NULL,
+            .func = &set_password,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd8));
 }
 
 extern "C" void app_main(void) {

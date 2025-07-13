@@ -134,6 +134,9 @@
 #define NDEF_URIPREFIX_URN_EPC              (0x22)
 #define NDEF_URIPREFIX_URN_NFC              (0x23)
 
+#define NTAG_CMD_PWD_PROT 0xB1 
+#define NTAG_CMD_WRITE_PWD 0xA2
+
 typedef enum {
     NTAG2XX_UNKNOWN,
     NTAG2XX_NTAG213,
@@ -168,6 +171,9 @@ public:
     esp_err_t pn532_set_passive_activation_retries(uint8_t maxRetries);
 
 // ISO14443A functions
+
+    esp_err_t ntag2xx_set_password(uint32_t password);
+    esp_err_t ntag2xx_clear_password();
 
 /**
  * Wait for an ISO14443A card and get UID of card.

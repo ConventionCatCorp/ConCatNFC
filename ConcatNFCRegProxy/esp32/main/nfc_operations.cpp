@@ -13,6 +13,11 @@ esp_err_t get_uuid(PN532 *nfc, uint8_t *uuid, uint8_t *uidLength) {
     return nfc->pn532_read_passive_target_id(PN532_BRTY_ISO14443A_106KBPS, uuid, uidLength, 1000);
 }
 
+esp_err_t set_nfc_password(PN532 *nfc, uint32_t pwd) {
+    ESP_LOGD(TAG, "Writing password on card");
+    return nfc->ntag2xx_set_password(pwd);
+}
+
 bool is_valid_tag(ConCatTag *tags) {
     ESP_LOGD(TAG, "Get tag type");
     return tags->IsTagModelValid();

@@ -255,8 +255,7 @@ static int update_tags(int argc, char **argv) {
         printf("{\"success\":false,\"error\":\"Expected UUID length of 14\"}\n");
         return 0;
     }
-    TagArray tagsNew;
-
+  
     uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
     for (int i = 0; i < 7; i++) {
         unsigned long ul;
@@ -287,6 +286,12 @@ static int update_tags(int argc, char **argv) {
     } else {
         ret = read_tag_data(def, Tags, uid, 7, NULL);
     }
+    if (!ret.success) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "%s", ret.message ? ret.message : "Unknown error");
+        printf("{\"success\":false,\"error\":\"%s\"}\n", buf);
+        return 0;
+    }
 
     if (cJSON_HasObjectItem(root, "attendeeId")){
         def.attendee_id = cJSON_GetObjectItem(root, "attendeeId")->valueint;
@@ -308,11 +313,32 @@ static int update_tags(int argc, char **argv) {
     if (cJSON_HasObjectItem(root, "expiration")) {
         def.expiration = cJSON_GetObjectItem(root, "expiration")->valueint;
     }
+    auto tagsNew = def.toTagArray();
+
+    cJSON_Delete(root);
+
+    
+    if (password == 0){
+        ret = write_on_card(tagsNew, Tags, uid, 7, nullptr);
+    }else{
+        ret = write_on_card(tagsNew, Tags, uid, 7, &password);
+    }
+
+    if (!ret.success) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "%s", ret.message ? ret.message : "Unknown error");
+        printf("{\"success\":false,\"error\":\"%s\"}\n", buf);
+        return 0;
+    }
+
+
     ret.message = def.toJSON();
     printf("{\"success\":true,\"card\":%s}\n", ret.message);
     def.Free();
     return 0;
 }
+
+
 static int write_tags(int argc, char **argv) {
     // Validate basic arguments
     if (argc < 3) {
@@ -325,7 +351,7 @@ static int write_tags(int argc, char **argv) {
         printf("{\"success\":false,\"error\":\"Expected UUID length of 14\"}\n");
         return 0;
     }
-    TagArray tagsNew;
+  
 
     uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
     for (int i = 0; i < 7; i++) {
@@ -358,13 +384,14 @@ static int write_tags(int argc, char **argv) {
         }
     }
 
+    CardDefinition def;
+    def.attendee_id = cJSON_GetObjectItem(root, "attendeeId")->valueint;
+    def.convention_id = cJSON_GetObjectItem(root, "conventionId")->valueint;
+    def.issuance = cJSON_GetObjectItem(root, "issuance")->valueint;
+    def.timestamp = cJSON_GetObjectItem(root, "timestamp")->valueint;
+    def.expiration = cJSON_GetObjectItem(root, "expiration")->valueint;
 
-    tagsNew.addTag(Tag::NewAttendeeId(cJSON_GetObjectItem(root, "attendeeId")->valueint, cJSON_GetObjectItem(root, "conventionId")->valueint));
-    tagsNew.addTag(Tag::NewIssuance(cJSON_GetObjectItem(root, "issuance")->valueint));
-    tagsNew.addTag(Tag::NewTimestamp(cJSON_GetObjectItem(root, "timestamp")->valueint));
-    tagsNew.addTag(Tag::NewExpiration(cJSON_GetObjectItem(root, "expiration")->valueint));
 
-    // Process signature
     const char *signature = cJSON_GetObjectItem(root, "signature")->valuestring;
     int errorType = -1;
     ByteArray bytes = Tag::ValidateSignatureStructure((unsigned char *)signature, errorType);
@@ -379,7 +406,8 @@ static int write_tags(int argc, char **argv) {
         cJSON_Delete(root);
         return 0;
     }
-    tagsNew.addTag(Tag::NewSignature(bytes));
+    def.signature = cJSON_GetObjectItem(root, "signature")->valuestring;
+    TagArray tagsNew = def.toTagArray();
 
     cJSON_Delete(root);
 

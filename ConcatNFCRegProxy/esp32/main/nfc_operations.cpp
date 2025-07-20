@@ -99,8 +99,13 @@ returnData read_tag_data(CardDefinition &tagsRead, ConCatTag *tags, uint8_t expe
         }
     }
     auto tagData = tags->readTags();
+    if (tagData.status != 0) {
+        ret.success = false;
+        ret.message = (char*)"Failed to read tags";
+        return ret;
+    }
     tags->reset();
-    tagsRead = tagData.toStruct();
+    tagsRead = tagData.tags.toStruct();
     auto tagJson = tagsRead.toJSON();
     ret.message = tagJson;
     ret.success = true;

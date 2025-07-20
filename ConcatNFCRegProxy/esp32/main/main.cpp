@@ -170,7 +170,7 @@ static int uuid(int argc, char **argv)
 
 static int detect_loop(int argc, char **argv)
 {
-    while (1){
+    while (true){
         uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
         uint8_t uidLength;                        // Length of the UID (4 or 7 bytes depending on ISO14443A card type)
 
@@ -186,6 +186,48 @@ static int detect_loop(int argc, char **argv)
         }
         vTaskDelay(200 / portTICK_PERIOD_MS);
         size_t bytesAvailable;
+        if (ESP_OK == uart_get_buffered_data_len(UART_NUM_0, &bytesAvailable)) {
+            if (bytesAvailable > 0) {
+                return 0;
+            }
+        }
+    }
+    return 0;
+}
+
+static int status_loop(int argc, char **argv) {
+    esp_err_t lastErr = 0;
+    bool firstStatus = true;
+    char *lastStatus = "unknown";
+    TickType_t last_status_time = xTaskGetTickCount();
+    while (true){
+        uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
+        uint8_t uidLength;                        // Length of the UID (4 or 7 bytes depending on ISO14443A card type)
+
+        err = get_uuid(nfc, uid, &uidLength);
+
+        if (err == ESP_OK) {
+            if (firstStatus || lastErr != err) {
+                printf("Card present\n");
+                lastStatus = "Card present";
+                last_status_time = xTaskGetTickCount();
+            }
+        }else{
+            if (firstStatus || lastErr != err) {
+                printf("Card NOT present\n");
+                lastStatus = "Card NOT present";
+                last_status_time = xTaskGetTickCount();
+            }
+        }
+        TickType_t now = xTaskGetTickCount();
+        if (now - last_status_time > pdMS_TO_TICKS(1000)) {
+            printf("%s\n", lastStatus);
+            last_status_time = xTaskGetTickCount();
+        }
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+        lastErr = err;
+        size_t bytesAvailable;
+        firstStatus = false;
         if (ESP_OK == uart_get_buffered_data_len(UART_NUM_0, &bytesAvailable)) {
             if (bytesAvailable > 0) {
                 return 0;
@@ -249,13 +291,13 @@ static int update_tags(int argc, char **argv) {
         printf("{\"success\":false,\"error\":\"Not enough arguments. Expected UUID and JSON data\"}\n");
         return 0;
     }
-    
+
     // Validate UUID
     if (strlen(argv[1]) != 14) {
         printf("{\"success\":false,\"error\":\"Expected UUID length of 14\"}\n");
         return 0;
     }
-  
+
     uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
     for (int i = 0; i < 7; i++) {
         unsigned long ul;
@@ -280,7 +322,7 @@ static int update_tags(int argc, char **argv) {
 
     returnData ret;
     CardDefinition def;
-    
+
     if (password != 0){
         ret = read_tag_data(def, Tags, uid, 7, &password);
     } else {
@@ -317,7 +359,7 @@ static int update_tags(int argc, char **argv) {
 
     cJSON_Delete(root);
 
-    
+
     if (password == 0){
         ret = write_on_card(tagsNew, Tags, uid, 7, nullptr);
     }else{
@@ -345,13 +387,13 @@ static int set_password(int argc, char **argv) {
         printf("{\"success\":false,\"error\":\"Not enough arguments. Expected UUID and JSON data\"}\n");
         return 0;
     }
-    
+
     // Validate UUID
     if (strlen(argv[1]) != 14) {
         printf("{\"success\":false,\"error\":\"Expected UUID length of 14\"}\n");
         return 0;
     }
-  
+
 
     uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
     for (int i = 0; i < 7; i++) {
@@ -374,7 +416,7 @@ static int set_password(int argc, char **argv) {
     }
 
     uint8_t uidAux[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
-    uint8_t uidLength;  
+    uint8_t uidLength;
     esp_err_t err = get_uuid(Tags->nfc, uidAux, &uidLength);
     if (err != ESP_OK) {
         printf("{\"success\":false,\"error\":\"Card not present\"}\n");
@@ -384,7 +426,7 @@ static int set_password(int argc, char **argv) {
         printf("{\"success\":false,\"error\":\"UUID Mismatch\"}\n");
         return 0;
     }
-    
+
     err = set_nfc_password(Tags->nfc, password);
     if (err != ESP_OK) {
         printf("{\"success\":false,\"error\":\"%s\"}\n", "Unknown error");
@@ -396,18 +438,19 @@ static int set_password(int argc, char **argv) {
 }
 
 static int write_tags(int argc, char **argv) {
+    uint8_t nextArg = 1;
     // Validate basic arguments
     if (argc < 3) {
-        printf("{\"success\":false,\"error\":\"Not enough arguments. Expected UUID and JSON data\"}\n");
+        printf("{\"success\":false,\"error\":\"Not enough arguments. Expected UUID, optional password and JSON data\"}\n");
         return 0;
     }
     
     // Validate UUID
-    if (strlen(argv[1]) != 14) {
+    if (strlen(argv[nextArg++]) != 14) {
         printf("{\"success\":false,\"error\":\"Expected UUID length of 14\"}\n");
         return 0;
     }
-  
+
 
     uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
     for (int i = 0; i < 7; i++) {
@@ -423,9 +466,12 @@ static int write_tags(int argc, char **argv) {
         uid[i] = ul;
     }
 
-    uint32_t password = strtoul(argv[2], NULL, 10);
+    uint32_t password = 0;
+    if (argc == 4) {
+        password = strtoul(argv[nextArg++], NULL, 10);
+    }
 
-    cJSON *root = cJSON_Parse(argv[3]);
+    cJSON *root = cJSON_Parse(argv[nextArg++]);
     if (!root) {
         printf("{\"success\":false,\"error\":\"Invalid JSON data\"}\n");
         return 0;
@@ -552,19 +598,26 @@ static void register_nfc_scan(void)
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&cmd6));
     const esp_console_cmd_t cmd7 = {
+            .command = "status",
+            .help = "Monitor card presence continuously",
+            .hint = NULL,
+            .func = &status_loop,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd7));
+    const esp_console_cmd_t cmd8 = {
             .command = "update",
             .help = "update UUID password {json}",
             .hint = NULL,
             .func = &update_tags,
     };
-    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd7));
-    const esp_console_cmd_t cmd8 = {
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd8));
+    const esp_console_cmd_t cmd9 = {
             .command = "set_password",
             .help = "set_password UUID password",
             .hint = NULL,
             .func = &set_password,
     };
-    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd8));
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd9));
 }
 
 extern "C" void app_main(void) {
@@ -572,6 +625,8 @@ extern "C" void app_main(void) {
     getFirmwareVersion();
 
     initialize_console();
+    linenoiseSetMultiLine(0); // Simplifies input parsing
+    linenoiseSetDumbMode(1);  // Tells linenoise not to expect ANSI escapes
 
     /* Register commands */
     esp_console_register_help_command();

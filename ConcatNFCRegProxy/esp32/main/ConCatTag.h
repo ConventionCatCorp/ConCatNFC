@@ -9,6 +9,11 @@
 
 #define SIGNATURE_LENGTH 74
 
+struct uint8_status {
+    uint8_t data;
+    uint8_t status;
+};
+
 class ByteArray {
 public:
     ByteArray(uint8_t *in_data, size_t in_length) {
@@ -109,6 +114,11 @@ private:
     std::vector<Tag> tags;
 };
 
+struct TagArrayStatus {
+    TagArray tags;
+    uint8_t status;
+};
+
 class ConCatTag {
 public:
     ConCatTag(PN532 *nfc);
@@ -116,9 +126,9 @@ public:
     bool unlockTag(uint32_t password);
     bool checkIfLocked();
     ByteArray readPage(uint8_t pageAddress);
-    uint8_t readByte();
+    uint8_status readByte();
     ByteArray readBytes(uint8_t length);
-    TagArray readTags();
+    TagArrayStatus readTags();
     bool writeTags(TagArray &tags);
     bool writePage(uint8_t pageAddress, ByteArray data);
 

@@ -128,9 +128,9 @@ CardDefinition TagArray::toStruct(){
 char *CardDefinition::toJSON(){
     char szBuffer[1024];
     uint32_t szBufferPos = 0;
-    
+
     szBufferPos = sprintf(szBuffer, "{");
-    
+
     if (attendee_id != 0) {
         szBufferPos += sprintf(szBuffer + szBufferPos, R"("attendeeId":%lu,)", attendee_id);
     }
@@ -138,16 +138,16 @@ char *CardDefinition::toJSON(){
     if (convention_id != 0){
         szBufferPos += sprintf(szBuffer + szBufferPos, R"("conventionId":%lu,)", convention_id);
     }
-    
+
     if (signature != nullptr && signature[0] != '\0') {
         szBufferPos += sprintf(szBuffer + szBufferPos, R"("signature":"%s",)", signature);
     }
-    
+
     // Add issuance if it exists
     if (issuance != 0) {
         szBufferPos += sprintf(szBuffer + szBufferPos, R"("issuance":%lu,)", issuance);
     }
-    
+
     // Add timestamp if it exists
     if (timestamp != 0) {
         szBufferPos += sprintf(szBuffer + szBufferPos, R"("timestamp":%llu,)", timestamp);
@@ -156,13 +156,13 @@ char *CardDefinition::toJSON(){
     if (expiration != 0) {
         szBufferPos += sprintf(szBuffer + szBufferPos, R"("expiration":%llu,)", expiration);
     }
-    
+
     if (szBufferPos > 1) {
         szBuffer[szBufferPos - 1] = '}';
     } else {
         szBufferPos += sprintf(szBuffer + szBufferPos, "}");
     }
-    
+
     szBuffer[szBufferPos] = '\0';
     return strdup(szBuffer);
 }
@@ -175,10 +175,10 @@ TagArray CardDefinition::toTagArray(){
     tags.addTag(Tag::NewIssuance(issuance));
     tags.addTag(Tag::NewTimestamp(timestamp));
     tags.addTag(Tag::NewExpiration(expiration));
-   
+
     size_t output_len;
     unsigned char* decoded = (unsigned char*)malloc(strlen(signature) * 3 / 4 + 1);
-    mbedtls_base64_decode(decoded, strlen(signature) * 3 / 4 + 1, &output_len, 
+    mbedtls_base64_decode(decoded, strlen(signature) * 3 / 4 + 1, &output_len,
                              (const unsigned char*)signature, strlen(signature));
     ByteArray bytes(decoded, output_len);
     tags.addTag(Tag::NewSignature(bytes));
@@ -352,7 +352,7 @@ bool ConCatTag::writePage(uint8_t pageAddress, ByteArray data) {
     ESP_LOG_BUFFER_HEX_LEVEL(TAG, data.data, 4, ESP_LOG_DEBUG);
     esp_err_t err = nfc->ntag2xx_write_page(pageAddress, data.data);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read page %d", pageAddress);
+        ESP_LOGE(TAG, "Failed to write page %d", pageAddress);
         return false;
     }
     ESP_LOGI(TAG, "Write page success %d with error %d", pageAddress, err);
@@ -375,45 +375,56 @@ ByteArray ConCatTag::readPage(uint8_t pageAddress) {
     return *tagMemory[pageAddress];
 }
 
-uint8_t ConCatTag::readByte() {
+uint8_status ConCatTag::readByte() {
     ESP_LOGD(TAG, "Reading byte at pos %d", bytePosition);
     auto thisPage = readPage(tagStartPage + bytePosition / 4);
     if (thisPage.data == nullptr){
-        return 0;
+        return uint8_status{0, 1};
     }
     ESP_LOGD(TAG, "Got Page %d: ", tagStartPage + bytePosition / 4);
     ESP_LOG_BUFFER_HEX_LEVEL(TAG, thisPage.data, 4, ESP_LOG_DEBUG);
     uint8_t byte = thisPage.data[bytePosition % 4];
     bytePosition++;
-    return byte;
+    return {byte, 0}; // Return the byte and the position of the next byte;
 }
 
 ByteArray ConCatTag::readBytes(uint8_t length) {
     ByteArray bytes(length);
     for (int i = 0; i < length; i++) {
-        bytes.data[i] = readByte();
+        auto result = readByte();
+        if (result.status != 0) {
+            return ByteArray{nullptr, 0};
+        }
+        bytes.data[i] = result.data;
     }
     return bytes;
 }
 
-TagArray ConCatTag::readTags() {
+TagArrayStatus ConCatTag::readTags() {
     auto tags = TagArray();
     bytePosition = 0;
     while (true) {
-        uint8_t tag = readByte();
+        auto result = readByte();
+        if (result.status != 0) {
+            return {{}, 1};
+        }
+        uint8_t tag = result.data;
         if (tag == 0) {
             break;
         }
         ESP_LOGD(TAG, "Tag: %d", tag);
         auto length = readByte();
-        ESP_LOGD(TAG, "Length: %d", length);
-        auto data = readBytes(length);
+        if (length.status != 0) {
+            return {{}, 1};
+        }
+        ESP_LOGD(TAG, "Length: %d", length.data);
+        auto data = readBytes(length.data);
         ESP_LOGD(TAG, "Data: ");
         ESP_LOG_BUFFER_HEX_LEVEL(TAG, data.data, data.length, ESP_LOG_DEBUG);
         tags.addTag(Tag(tag, data));
     }
 
-    return tags;
+    return {tags, 0};
 }
 
 bool ConCatTag::writeTags(TagArray &tags){

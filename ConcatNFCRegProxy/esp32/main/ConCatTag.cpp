@@ -291,25 +291,17 @@ ByteArray Tag::getTagValueBytes() {
     return data;
 }
 
-// Function to convert a 32-bit unsigned integer to big-endian byte array
-void uint32_to_big_endian_bytes(uint32_t value, uint8_t* buffer) {
-    buffer[0] = (value >> 24) & 0xFF; // Most significant byte
-    buffer[1] = (value >> 16) & 0xFF;
-    buffer[2] = (value >> 8) & 0xFF;
-    buffer[3] = value & 0xFF;         // Least significant byte
-}
-
 ConCatTag::ConCatTag(PN532 *i_nfc) {
     nfc = i_nfc;
 }
 
 bool ConCatTag::IsTagModelValid(){
-    NTAG2XX_MODEL ntag_model = NTAG2XX_UNKNOWN;
+    NTAG2XX_INFO ntag_model;
     esp_err_t err = nfc->ntag2xx_get_model(&ntag_model);
     if (err != ESP_OK)
         return false;
 
-    switch (ntag_model) {
+    switch (ntag_model.model) {
         case NTAG2XX_NTAG213:
             return true;
         case NTAG2XX_NTAG215:

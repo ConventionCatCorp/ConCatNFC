@@ -368,13 +368,13 @@ esp_err_t PN532::pn532_in_list_passive_target() {
     return ESP_FAIL;
 }
 
-esp_err_t PN532::ntag2xx_get_model( NTAG2XX_MODEL *model)
+esp_err_t PN532::ntag2xx_get_model( NTAG2XX_INFO *model)
 {
     if (model == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    *model = NTAG2XX_UNKNOWN;
+    model->model = NTAG2XX_UNKNOWN;
 
     uint8_t page_mem[16];
     esp_err_t err = ntag2xx_read_page(0, page_mem, sizeof(page_mem));
@@ -386,19 +386,28 @@ esp_err_t PN532::ntag2xx_get_model( NTAG2XX_MODEL *model)
 
     switch (page_mem[14]) {
         case 0x12:
-            *model = NTAG2XX_NTAG213;
+            model->model = NTAG2XX_NTAG213;
+            model->passwordPage = 0x2B;
+            model->configPage = 0x29;
+            model->auth0Page = 0x2A;
             break;
 
         case 0x3e:
-            *model = NTAG2XX_NTAG215;
+            model->model = NTAG2XX_NTAG215;
+            model->passwordPage = 0x85;
+            model->configPage = 0x83;
+            model->auth0Page = 0x84;
             break;
 
         case 0x6d:
-            *model = NTAG2XX_NTAG216;
+            model->model = NTAG2XX_NTAG216;
+            model->passwordPage = 0xE5;
+            model->configPage = 0xE3;
+            model->auth0Page = 0xE4;
             break;
 
         default:
-            *model = NTAG2XX_UNKNOWN;
+            model->model = NTAG2XX_UNKNOWN;
     }
 
     return ESP_OK;
@@ -429,82 +438,60 @@ esp_err_t PN532::ntag2xx_set_password(uint32_t password) {
     passwordBytes[1] = (password >> 16) & 0xFF;
     passwordBytes[2] = (password >> 8) & 0xFF;
     passwordBytes[3] = password & 0xFF;
-    
-   
 
     // Determine tag model
     
-    NTAG2XX_MODEL model;
+    NTAG2XX_INFO model;
     esp_err_t err = ntag2xx_get_model(&model);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to get NTAG model");
         return err;
     }
 
-    // Set password and protection based on model
-    uint8_t passwordPage;
-    uint8_t configPage;
-    uint8_t auth0Page;
-
-    switch (model) {
-        case NTAG2XX_NTAG213:
-            passwordPage = 0x2B;
-            configPage = 0x29;
-            auth0Page = 0x2A;
-            break;
-        case NTAG2XX_NTAG215:
-            passwordPage = 0x85;
-            configPage = 0x83;
-            auth0Page = 0x84;
-            break;
-        case NTAG2XX_NTAG216:
-            passwordPage = 0xE5;
-            configPage = 0xE3;
-            auth0Page = 0xE4;
-            break;
-        default:
-            ESP_LOGE(TAG, "Unsupported NTAG model");
-            return ESP_ERR_NOT_SUPPORTED;
+    if (model.model == NTAG2XX_UNKNOWN) {
+        ESP_LOGE(TAG, "Unsupported NTAG model");
+        return ESP_ERR_NOT_SUPPORTED;
     }
 
     // Write password to password page
-    err = ntag2xx_write_page(passwordPage, passwordBytes);
+    err = ntag2xx_write_page(model.passwordPage, passwordBytes);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to write password to page 0x%02X", passwordPage);
+        ESP_LOGE(TAG, "Failed to write password to page 0x%02X", model.passwordPage);
+        return err;
+    }
+
+    err = pn532_reset_card();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to reset card");
+        return err;
+    }
+    err = ntag2xx_authenticate(passwordBytes);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to authenticate");
         return err;
     }
 
     // Read current configuration
     uint8_t configData[8]; // We only need 2 pages (8 bytes)
-    err = ntag2xx_read_page(configPage, configData, sizeof(configData));
+    err = ntag2xx_read_page(model.configPage, configData, sizeof(configData));
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read config pages");
         return err;
     }
 
-    // Modify configuration:
-    // - Set AUTH0 (page after config) to define protection start
-    // - Set PROT bit in config to enable password protection
-    
-    // Write AUTH0 page (set to 0x00 to protect entire memory)
-    uint8_t auth0Data[4] = {0x00};
-    err = ntag2xx_write_page(auth0Page, auth0Data);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to set AUTH0 page");
-        return err;
-    }
-
+    // Start page to protect
+    configData[3] = 0x10;
     // Update configuration (set PROT bit)
     configData[4] |= (1 << 7); // Set bit 7 of byte 4 (PROT bit)
 
     // Write back modified configuration
-    err = ntag2xx_write_page(configPage, configData);
+    err = ntag2xx_write_page(model.configPage, configData);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to write config page 0");
         return err;
     }
 
-    err = ntag2xx_write_page(configPage + 1, configData + 4);
+    err = ntag2xx_write_page(model.configPage + 1, configData + 4);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to write config page 1");
         return err;
@@ -635,12 +622,12 @@ esp_err_t PN532::ntag2xx_write_page( uint8_t page, const uint8_t * data)
     // NTAG 215       135     4             129
     // NTAG 216       231     4             225
 
-    if ((page < 4) || (page > 225)) {
+    if ((page < 4) || (page > 231)) {
 #ifdef CONFIG_MIFAREDEBUG
         ESP_LOGD(TAG, "Page value out of range");
 #endif
         // Return Failed Signal
-        return 0;
+        return ESP_ERR_INVALID_ARG;
     }
 
 #ifdef CONFIG_MIFAREDEBUG
@@ -677,5 +664,13 @@ esp_err_t PN532::ntag2xx_write_page( uint8_t page, const uint8_t * data)
     /* Read the response packet */
     err = m_Interface->pn532_read_data(pn532_packetbuffer, 26, PN532_READ_TIMEOUT);
     return err;
+}
+
+// Function to convert a 32-bit unsigned integer to big-endian byte array
+void uint32_to_big_endian_bytes(uint32_t value, uint8_t* buffer) {
+    buffer[0] = (value >> 24) & 0xFF; // Most significant byte
+    buffer[1] = (value >> 16) & 0xFF;
+    buffer[2] = (value >> 8) & 0xFF;
+    buffer[3] = value & 0xFF;         // Least significant byte
 }
 

@@ -15,7 +15,12 @@ esp_err_t get_uuid(PN532 *nfc, uint8_t *uuid, uint8_t *uidLength) {
 
 esp_err_t set_nfc_password(PN532 *nfc, uint32_t pwd) {
     ESP_LOGD(TAG, "Writing password on card");
-    return nfc->ntag2xx_set_password(pwd);
+    esp_err_t err = nfc->ntag2xx_set_password(pwd);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error setting password: %s", esp_err_to_name(err));
+        return err;
+    }
+    return ESP_OK;
 }
 
 bool is_valid_tag(ConCatTag *tags) {

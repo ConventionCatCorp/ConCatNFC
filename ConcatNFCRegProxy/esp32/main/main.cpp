@@ -265,7 +265,8 @@ static int read_tag(int argc, char **argv) {
 
     CardDefinition def;
     if (argc == 3) {
-        password = strtol(argv[2], NULL, 10);
+        password = strtoul(argv[2], nullptr, 10);
+        ESP_LOGD(TAG, "Password: %d", password);
         ret = read_tag_data(def, Tags, uid, 7, &password);
     } else {
         ret = read_tag_data(def, Tags, uid, 7, NULL);
@@ -433,7 +434,7 @@ static int set_password(int argc, char **argv) {
         return 0;
     }
 
-    printf("{\"success\":false,\"message\":\"Ok\"}\n");
+    printf("{\"success\":true,\"message\":\"Ok\"}\n");
     return 0;
 }
 

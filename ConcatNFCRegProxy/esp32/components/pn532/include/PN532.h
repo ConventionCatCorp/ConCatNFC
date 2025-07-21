@@ -144,6 +144,15 @@ typedef enum {
     NTAG2XX_NTAG216
 } NTAG2XX_MODEL;
 
+void uint32_to_big_endian_bytes(uint32_t value, uint8_t* buffer);
+
+struct NTAG2XX_INFO {
+    NTAG2XX_MODEL model;
+    uint8_t passwordPage;
+    uint8_t configPage;
+    uint8_t auth0Page;
+};
+
 // Generic PN532 functions
 
 class PN532 {
@@ -220,7 +229,7 @@ public:
  * @param model the model detected
  * @return ESP_OK if successful
  */
-    esp_err_t ntag2xx_get_model( NTAG2XX_MODEL *model);
+    esp_err_t ntag2xx_get_model( NTAG2XX_INFO *model);
 
 /**
  * Authenticate with PWD_AUTH command

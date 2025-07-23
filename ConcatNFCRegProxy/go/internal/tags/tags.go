@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -91,7 +92,7 @@ func TagsToRequest(tags []types.Tag) (types.CardDefinitionRequest, error) {
 				if len(tag.Data) != 8 {
 					return resp, fmt.Errorf("Tag TAG_TIMESTAMP expected 8 bytes but got %d", len(tag.Data))
 				}
-				resp.IssuanceTimestamp = binary.BigEndian.Uint64(tag.Data)
+				resp.IssuanceTimestamp = fmt.Sprintf("%v", binary.BigEndian.Uint64(tag.Data))
 			}
 		case TAG_EXPIRATION:
 			{
@@ -186,8 +187,12 @@ func UpdateTags(tags []types.Tag, data types.CardDefinitionRequest) ([]types.Tag
 				tags[idx] = NewIssuance(data.IssuanceCount)
 			}
 		} else if tag.Id == TAG_TIMESTAMP {
-			if data.IssuanceTimestamp != 0 {
-				tags[idx] = NewTimestamp(data.IssuanceTimestamp)
+			if data.IssuanceTimestamp != "" {
+				timestamp, err := strconv.ParseUint(data.IssuanceTimestamp, 10, 64)
+				if err != nil {
+					return nil, err
+				}
+				tags[idx] = NewTimestamp(timestamp)
 			}
 		} else if tag.Id == TAG_EXPIRATION {
 			if data.Expiration != 0 {

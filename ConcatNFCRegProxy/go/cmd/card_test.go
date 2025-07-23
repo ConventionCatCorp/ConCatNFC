@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -115,7 +116,7 @@ func TestCardWrite(t *testing.T) {
 		AttendeeId:        123,
 		ConventionId:      32,
 		IssuanceCount:     1,
-		IssuanceTimestamp: nowIunix,
+		IssuanceTimestamp: fmt.Sprintf("%v", nowIunix),,
 		Expiration:        uint64(nowIunix + uint64(3600*24)),
 		Signature:         "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ=",
 		Password:          123,
@@ -174,7 +175,7 @@ func TestCardWrite(t *testing.T) {
 		ConventionId:      33,
 		Password:          123,
 		AttendeeId:        124,
-		IssuanceTimestamp: nowIunix + 3,
+		IssuanceTimestamp: fmt.Sprintf("%v", nowIunix + 3),
 		Expiration:        uint64(nowIunix + uint64(3600*22)),
 		Signature:         "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ=",
 		UUID:              CARD_UUID,
@@ -213,7 +214,7 @@ func TestCardPassword(t *testing.T) {
 		AttendeeId:        123,
 		ConventionId:      32,
 		IssuanceCount:     1,
-		IssuanceTimestamp: nowIunix,
+		IssuanceTimestamp: fmt.Sprintf("%v", nowIunix),
 		Expiration:        uint64(nowIunix + uint64(3600*24)),
 		Password:          1,
 		Signature:         "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ=",

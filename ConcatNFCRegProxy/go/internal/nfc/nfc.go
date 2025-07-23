@@ -96,6 +96,7 @@ func (env *NFCEnvoriment) eventHandler() {
 			if err != nil {
 				fmt.Printf("eventHandler: Got error: %v\n", err)
 				env.sendEvent("Reader error")
+				env.ready = false
 				if lastTimeReadersChanged != env.GetTimeReadersChanged() {
 					// Break to go and re-read readers
 					fmt.Printf("eventHandler: Readers changed...\n")
@@ -117,13 +118,15 @@ func (env *NFCEnvoriment) eventHandler() {
 					card, err := env.connectAndValidateCard(i)
 					if err != nil {
 						fmt.Printf("eventHandler: Got error: %v\n", err)
+						env.Unlock()
+					} else {
+						fmt.Printf("Connected to card\n")
+						env.cardConnection = card
+						env.buffer = []byte{}
+						env.connectedReaderIndex = i
+						env.Unlock()
+						env.sendEvent("Card present")
 					}
-					fmt.Printf("Connected to card\n")
-					env.cardConnection = card
-					env.buffer = []byte{}
-					env.connectedReaderIndex = i
-					env.Unlock()
-					env.sendEvent("Card present")
 				}
 				if rs[i].EventState&scard.StateEmpty != 0 {
 					fmt.Printf("Got card removed on reader %d\n", i)
@@ -199,14 +202,25 @@ func (env *NFCEnvoriment) lookForDevicesRoutine() {
 				time.Sleep(1 * time.Second)
 				continue
 			}
-			//We'll be using the first connected device.
-			//In the case of multiple devices connected~
+			var found bool
 			if len(readers) > 0 {
 				fmt.Printf("Found a device, those are our readers: %v\n", readers)
-				env.readers = []string{readers[0]}
-				env.ready = true
-				break
+				for _, reader := range readers {
+					if strings.Contains(strings.ToLower(reader), "yubico") {
+						fmt.Printf("Ignoring yubico device %s\n", reader)
+						continue
+					}
+					fmt.Printf("Using device %s\n", reader)
+					env.readers = []string{reader}
+					env.ready = true
+					found = true
+					break
+				}
+				if found {
+					break
+				}
 			}
+			time.Sleep(1 * time.Second)
 			env.lastTimeReadersChanged = time.Now()
 		}
 		env.Mtx.Unlock()
@@ -445,7 +459,7 @@ func (env *NFCEnvoriment) parseNtagVersion(ver byte, ci *CardInfo) (*CardInfo, e
 
 func (env *NFCEnvoriment) getCardInfo() (*CardInfo, error) {
 	ci := new(CardInfo)
-	if len(env.version) < 6 {
+	if len(env.version) < 8 {
 		return nil, fmt.Errorf("Unsupported card")
 	}
 	switch env.version[1] { // NXP
@@ -456,7 +470,7 @@ func (env *NFCEnvoriment) getCardInfo() (*CardInfo, error) {
 		return nil, fmt.Errorf("Unsupported card")
 	}
 
-	if env.version[2] != 0x04 && env.version[3] != 0x02 && env.version[4] != 0x01 {
+	if env.version[2] != 0x04 || env.version[3] != 0x02 || env.version[4] != 0x01 {
 		return nil, fmt.Errorf("Unsupported card")
 	}
 

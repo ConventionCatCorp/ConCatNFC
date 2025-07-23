@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"ConcatNFCRegProxy/internal/nfc"
@@ -178,7 +179,7 @@ func (h *HandlerContext) writeData(c *gin.Context) {
 	}
 
 	if req.AttendeeId == 0 || req.ConventionId == 0 || req.IssuanceCount == 0 ||
-		req.IssuanceTimestamp == 0 || req.Signature == "" || req.Password == 0 || req.UUID == "" {
+		req.IssuanceTimestamp == "" || req.Signature == "" || req.Password == 0 || req.UUID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body, one of the fields are missing"})
 		return
 	}
@@ -207,7 +208,12 @@ func (h *HandlerContext) writeData(c *gin.Context) {
 	var insertTags []types.Tag
 	insertTags = append(insertTags, tags.NewAttendeeId(req.AttendeeId, req.ConventionId))
 	insertTags = append(insertTags, tags.NewIssuance(req.IssuanceCount))
-	insertTags = append(insertTags, tags.NewTimestamp(req.IssuanceTimestamp))
+	timestamp, err := strconv.ParseUint(req.IssuanceTimestamp, 10, 64)
+	if err != nil {
+		response.Error = "Invalid timestamp: " + err.Error()
+		c.JSON(http.StatusForbidden, response)
+	}
+	insertTags = append(insertTags, tags.NewTimestamp(timestamp))
 	if req.Expiration != 0 {
 		insertTags = append(insertTags, tags.NewExpiration(req.Expiration))
 	}

@@ -17,7 +17,7 @@ type CardDefinitionRequest struct {
 	AttendeeId        uint32 `json:"attendeeId,omitempty"`
 	ConventionId      uint32 `json:"conventionId,omitempty"`
 	IssuanceCount     uint32 `json:"issuance,omitempty"`
-	IssuanceTimestamp uint64 `json:"timestamp,omitempty"`
+	IssuanceTimestamp string `json:"timestamp,omitempty"`
 	Expiration        uint64 `json:"expiration,omitempty"`
 	Signature         string `json:"signature,omitempty"`
 	Password          uint32 `json:"password,omitempty"`

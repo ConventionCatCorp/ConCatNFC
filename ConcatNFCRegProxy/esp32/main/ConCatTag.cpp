@@ -62,13 +62,13 @@ ByteArray *TagArray::getSignature()
     return new ByteArray(tag->getTagValueBytes());
 }
 
-uint64_t *TagArray::getIssuance()
+uint32_t *TagArray::getIssuance()
 {
     Tag *tag = getTag(ISSUANCE);
     if (tag == nullptr) {
         return nullptr;
     }
-    return new uint64_t(tag->getTagValueULong());
+    return new uint32_t(tag->getTagValueULong());
 }
 
 uint64_t *TagArray::getTimestamp()
@@ -150,11 +150,11 @@ char *CardDefinition::toJSON(){
 
     // Add timestamp if it exists
     if (timestamp != 0) {
-        szBufferPos += sprintf(szBuffer + szBufferPos, R"("timestamp":%llu,)", timestamp);
+        szBufferPos += sprintf(szBuffer + szBufferPos, R"("timestamp":"%llu",)", timestamp);
     }
 
     if (expiration != 0) {
-        szBufferPos += sprintf(szBuffer + szBufferPos, R"("expiration":%llu,)", expiration);
+        szBufferPos += sprintf(szBuffer + szBufferPos, R"("expiration":"%llu",)", expiration);
     }
 
     if (szBufferPos > 1) {
@@ -174,7 +174,9 @@ TagArray CardDefinition::toTagArray(){
     tags.addTag(Tag::NewAttendeeId(attendee_id, convention_id));
     tags.addTag(Tag::NewIssuance(issuance));
     tags.addTag(Tag::NewTimestamp(timestamp));
-    tags.addTag(Tag::NewExpiration(expiration));
+    if (expiration != 0) {
+        tags.addTag(Tag::NewExpiration(expiration));
+    }
 
     size_t output_len;
     unsigned char* decoded = (unsigned char*)malloc(strlen(signature) * 3 / 4 + 1);
@@ -198,8 +200,8 @@ Tag Tag::NewAttendeeId(uint32_t attendeeId, uint32_t conventionId) {
     return Tag(ATTENDEE_CONVENTION_ID, ByteArray(data.data(), data.size()));
 }
 
-Tag Tag::NewIssuance(uint64_t issuance) {
-    auto bytes = uint64ToBytes(issuance);
+Tag Tag::NewIssuance(uint32_t issuance) {
+    auto bytes = uint32ToBytes(issuance);
     return Tag(ISSUANCE, ByteArray(bytes.data(), bytes.size()));
 }
 
@@ -238,14 +240,7 @@ ByteArray Tag::ValidateSignatureStructure(unsigned char *signature, int &errorTy
         return ByteArray(nullptr, 0);
     }
 
-    if (output_len != SIGNATURE_LENGTH) {
-        delete []output;
-        errorType = 2;
-        ESP_LOGE(TAG, "Base64 size mismatch");
-        return ByteArray(nullptr, 0);
-    }
-
-    ByteArray result(output, SIGNATURE_LENGTH);
+    ByteArray result(output, output_len);
     delete []output;
     return result;
 }

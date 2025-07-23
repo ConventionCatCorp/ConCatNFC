@@ -7,8 +7,6 @@
 #include "PN532.h"
 #include "string.h"
 
-#define SIGNATURE_LENGTH 74
-
 struct uint8_status {
     uint8_t data;
     uint8_t status;
@@ -61,7 +59,7 @@ public:
     ByteArray getTagValueBytes();
 
     static Tag NewAttendeeId(uint32_t attendeeId, uint32_t conventionId);
-    static Tag NewIssuance(uint64_t issuance);
+    static Tag NewIssuance(uint32_t issuance);
     static Tag NewTimestamp(uint64_t timestamp);
     static Tag NewExpiration(uint64_t expiration);
     static Tag NewSignature(ByteArray signature);
@@ -94,7 +92,7 @@ class CardDefinition{
         uint32_t issuance;
         uint64_t timestamp;
         uint64_t expiration;
-        char *signature;        
+        char *signature;
 };
 
 class TagArray {
@@ -103,7 +101,7 @@ public:
     Tag* getTag(uint8_t id);
     DoubleUint *getAttendeeAndConvention();
     ByteArray *getSignature();
-    uint64_t *getIssuance();
+    uint32_t *getIssuance();
     uint64_t *getTimestamp();
     uint64_t *getExpiration();
     

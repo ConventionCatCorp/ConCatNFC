@@ -351,10 +351,10 @@ static int update_tags(int argc, char **argv) {
         def.issuance = cJSON_GetObjectItem(root, "issuance")->valueint;
     }
     if (cJSON_HasObjectItem(root, "timestamp")) {
-        def.timestamp = cJSON_GetObjectItem(root, "timestamp")->valueint;
+        def.timestamp = strtoull(cJSON_GetObjectItem(root, "timestamp")->valuestring, NULL, 10);
     }
     if (cJSON_HasObjectItem(root, "expiration")) {
-        def.expiration = cJSON_GetObjectItem(root, "expiration")->valueint;
+        def.expiration = strtoull(cJSON_GetObjectItem(root, "expiration")->valuestring, NULL, 10);
     }
     auto tagsNew = def.toTagArray();
 
@@ -478,38 +478,82 @@ static int write_tags(int argc, char **argv) {
         return 0;
     }
 
-    const char* required_fields[] = {"attendeeId", "conventionId", "issuance", "timestamp", "expiration", "signature"};
-    for (size_t i = 0; i < sizeof(required_fields)/sizeof(required_fields[0]); i++) {
-        if (!cJSON_HasObjectItem(root, required_fields[i])) {
-            printf("{\"success\":false,\"error\":\"Missing required field: %s\"}\n", required_fields[i]);
-            cJSON_Delete(root);
-            return 0;
+    struct {
+        char *name;
+        bool required;
+        bool present;
+    } fields[] = {
+            {
+                    "attendeeId",
+                    true,
+                    false,
+            },
+            {
+                    "conventionId",
+                    true,
+                    false,
+            },
+            {
+                    "issuance",
+                    true,
+                    false,
+            },
+            {
+                    "timestamp",
+                    true,
+                    false,
+            },
+            {
+                    "signature",
+                    true,
+                    false,
+            },
+    };
+
+    for (auto & field : fields) {
+        if (!cJSON_HasObjectItem(root, field.name)) {
+            field.present = false;
+            if (field.required) {
+                printf("{\"success\":false,\"error\":\"Missing required field: %s\"}\n", field.name);
+                cJSON_Delete(root);
+                return 0;
+            }
+        } else {
+            field.present = true;
         }
     }
 
     CardDefinition def;
-    def.attendee_id = cJSON_GetObjectItem(root, "attendeeId")->valueint;
-    def.convention_id = cJSON_GetObjectItem(root, "conventionId")->valueint;
-    def.issuance = cJSON_GetObjectItem(root, "issuance")->valueint;
-    def.timestamp = cJSON_GetObjectItem(root, "timestamp")->valueint;
-    def.expiration = cJSON_GetObjectItem(root, "expiration")->valueint;
 
-
-    const char *signature = cJSON_GetObjectItem(root, "signature")->valuestring;
-    int errorType = -1;
-    ByteArray bytes = Tag::ValidateSignatureStructure((unsigned char *)signature, errorType);
-    if (bytes.length == 0) {
-        const char *errorMsg = "Unknown signature error";
-        switch (errorType) {
-            case 0: errorMsg = "Missing signature"; break;
-            case 1: errorMsg = "Unable to decode base64"; break;
-            case 2: errorMsg = "Tag size is invalid"; break;
+    for (auto & field : fields) {
+        if (strcmp(field.name, "attendeeId") == 0 && field.present) {
+            def.attendee_id = cJSON_GetObjectItem(root, "attendeeId")->valueint;
+        } else if (strcmp(field.name, "conventionId") == 0 && field.present) {
+            def.convention_id = cJSON_GetObjectItem(root, "conventionId")->valueint;
+        } else if (strcmp(field.name, "issuance") == 0 && field.present) {
+            def.issuance = cJSON_GetObjectItem(root, "issuance")->valueint;
+        } else if (strcmp(field.name, "timestamp") == 0 && field.present) {
+            def.timestamp = strtoull(cJSON_GetObjectItem(root, "timestamp")->valuestring, NULL, 10);
+        } else if (strcmp(field.name, "expiration") == 0 && field.present) {
+            def.expiration = strtoull(cJSON_GetObjectItem(root, "expiration")->valuestring, NULL, 10);
+        } else if (strcmp(field.name, "signature") == 0 && field.present) {
+            const char *signature = cJSON_GetObjectItem(root, "signature")->valuestring;
+            int errorType = -1;
+            ByteArray bytes = Tag::ValidateSignatureStructure((unsigned char *)signature, errorType);
+            if (bytes.length == 0) {
+                const char *errorMsg = "Unknown signature error";
+                switch (errorType) {
+                    case 0: errorMsg = "Missing signature"; break;
+                    case 1: errorMsg = "Unable to decode base64"; break;
+                }
+                printf("{\"success\":false,\"error\":\"%s\"}\n", errorMsg);
+                cJSON_Delete(root);
+                return 0;
+            }
+            def.signature = cJSON_GetObjectItem(root, "signature")->valuestring;
         }
-        printf("{\"success\":false,\"error\":\"%s\"}\n", errorMsg);
-        cJSON_Delete(root);
-        return 0;
     }
-    def.signature = cJSON_GetObjectItem(root, "signature")->valuestring;
+
     TagArray tagsNew = def.toTagArray();
 
     cJSON_Delete(root);

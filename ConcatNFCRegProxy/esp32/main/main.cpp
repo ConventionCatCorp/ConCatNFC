@@ -160,9 +160,11 @@ static int uuid(int argc, char **argv)
         debug_hex("  UID Value: ", uid, ':', uidLength);
         char *hex = bin2hex(uid, uidLength, 0);
         printf("{\"uuid\":\"%s\",\"success\":true}\n", hex);
+        gpio_set_level(GPIO_NUM_5, 1); 
         free(hex);
     } else {
         ESP_LOGD(TAG, "Could not find a card.");
+        gpio_set_level(GPIO_NUM_5, 0); 
         printf("{\"success\":false,\"error\":\"Could not find a card\"}\n");
     }
     return 0;
@@ -209,12 +211,14 @@ static int status_loop(int argc, char **argv) {
         if (err == ESP_OK) {
             if (firstStatus || lastErr != err) {
                 printf("Card present\n");
+                gpio_set_level(GPIO_NUM_5, 1); 
                 lastStatus = "Card present";
                 last_status_time = xTaskGetTickCount();
             }
         }else{
             if (firstStatus || lastErr != err) {
                 printf("Card NOT present\n");
+                gpio_set_level(GPIO_NUM_5, 0); 
                 lastStatus = "Card NOT present";
                 last_status_time = xTaskGetTickCount();
             }
@@ -238,6 +242,7 @@ static int status_loop(int argc, char **argv) {
 }
 
 static int read_tag(int argc, char **argv) {
+    gpio_set_level(GPIO_NUM_5, 0); 
     if (argc < 2) {
         printf("{\"success\":false,\"error\":\"Not enough arguments\"}\n");
         return 0;
@@ -258,7 +263,8 @@ static int read_tag(int argc, char **argv) {
             return 0;
         }
         uid[i] = ul;
-    }
+    }  
+    gpio_set_level(GPIO_NUM_5, 1); 
 
     uint32_t password;
     returnData ret;
@@ -271,6 +277,7 @@ static int read_tag(int argc, char **argv) {
     } else {
         ret = read_tag_data(def, Tags, uid, 7, NULL);
     }
+    gpio_set_level(GPIO_NUM_5, 0); 
     if (!ret.success) {
         char buf[256];
         if (!ret.message) {
@@ -288,6 +295,7 @@ static int read_tag(int argc, char **argv) {
 
 
 static int update_tags(int argc, char **argv) {
+    gpio_set_level(GPIO_NUM_5, 0); 
     if (argc < 3) {
         printf("{\"success\":false,\"error\":\"Not enough arguments. Expected UUID and JSON data\"}\n");
         return 0;
@@ -323,7 +331,7 @@ static int update_tags(int argc, char **argv) {
 
     returnData ret;
     CardDefinition def;
-
+    gpio_set_level(GPIO_NUM_5, 1); 
     if (password != 0){
         ret = read_tag_data(def, Tags, uid, 7, &password);
     } else {
@@ -332,6 +340,7 @@ static int update_tags(int argc, char **argv) {
     if (!ret.success) {
         char buf[256];
         snprintf(buf, sizeof(buf), "%s", ret.message ? ret.message : "Unknown error");
+        gpio_set_level(GPIO_NUM_5, 0); 
         printf("{\"success\":false,\"error\":\"%s\"}\n", buf);
         return 0;
     }
@@ -366,7 +375,7 @@ static int update_tags(int argc, char **argv) {
     }else{
         ret = write_on_card(tagsNew, Tags, uid, 7, &password);
     }
-
+    gpio_set_level(GPIO_NUM_5, 0); 
     if (!ret.success) {
         char buf[256];
         snprintf(buf, sizeof(buf), "%s", ret.message ? ret.message : "Unknown error");
@@ -383,6 +392,7 @@ static int update_tags(int argc, char **argv) {
 
 
 static int set_password(int argc, char **argv) {
+    gpio_set_level(GPIO_NUM_5, 0); 
     // Validate basic arguments
     if (argc < 3) {
         printf("{\"success\":false,\"error\":\"Not enough arguments. Expected UUID and JSON data\"}\n");
@@ -415,11 +425,12 @@ static int set_password(int argc, char **argv) {
         printf("{\"success\":false,\"error\":\"Password cannot be 0\"}\n");
         return 0;
     }
-
+    gpio_set_level(GPIO_NUM_5, 1); 
     uint8_t uidAux[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
     uint8_t uidLength;
     esp_err_t err = get_uuid(Tags->nfc, uidAux, &uidLength);
     if (err != ESP_OK) {
+        gpio_set_level(GPIO_NUM_5, 0); 
         printf("{\"success\":false,\"error\":\"Card not present\"}\n");
         return 0;
     }
@@ -429,6 +440,7 @@ static int set_password(int argc, char **argv) {
     }
 
     err = set_nfc_password(Tags->nfc, password);
+    gpio_set_level(GPIO_NUM_5, 0); 
     if (err != ESP_OK) {
         printf("{\"success\":false,\"error\":\"%s\"}\n", "Unknown error");
         return 0;
@@ -439,6 +451,7 @@ static int set_password(int argc, char **argv) {
 }
 
 static int write_tags(int argc, char **argv) {
+    gpio_set_level(GPIO_NUM_5, 0); 
     uint8_t nextArg = 1;
     // Validate basic arguments
     if (argc < 3) {
@@ -559,11 +572,13 @@ static int write_tags(int argc, char **argv) {
     cJSON_Delete(root);
 
     returnData ret;
+    gpio_set_level(GPIO_NUM_5, 1); 
     if (password == 0){
         ret = write_on_card(tagsNew, Tags, uid, 7, nullptr);
     }else{
         ret = write_on_card(tagsNew, Tags, uid, 7, &password);
     }
+    gpio_set_level(GPIO_NUM_5, 0); 
     if (!ret.success) {
         char buf[256];
         snprintf(buf, sizeof(buf), "%s", ret.message ? ret.message : "Unknown error");

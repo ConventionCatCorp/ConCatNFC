@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.concatnfc"
+    namespace = "app.concat.nfcvalidator"
     compileSdk = 35
 
     defaultConfig {

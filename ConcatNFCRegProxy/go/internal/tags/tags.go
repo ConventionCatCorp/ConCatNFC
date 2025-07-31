@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -14,8 +15,6 @@ var TAG_ISSUANCE byte = 0x03
 var TAG_TIMESTAMP byte = 0x04
 var TAG_EXPIRATION byte = 0x05
 
-var SIGNATURE_LENGTH = 74
-
 func TagToText(tag types.Tag) (string, error) {
 	switch tag.Id {
 	case TAG_ATTENDEE_ID:
@@ -23,15 +22,12 @@ func TagToText(tag types.Tag) (string, error) {
 			if len(tag.Data) != 8 {
 				return "", fmt.Errorf("Tag TAG_ATTENDEE_ID expected 4 bytes but got %d", len(tag.Data))
 			}
-			val := binary.BigEndian.Uint32(tag.Data)
-			val2 := binary.BigEndian.Uint32(tag.Data)
+			val := binary.BigEndian.Uint32(tag.Data[0:4])
+			val2 := binary.BigEndian.Uint32(tag.Data[4:8])
 			return fmt.Sprintf("TAG=TAG_ATTENDEE_ID UserID=%d ConventionID=%d", val, val2), nil
 		}
 	case TAG_SIGNATURE:
 		{
-			if len(tag.Data) != SIGNATURE_LENGTH {
-				return "", fmt.Errorf("Tag TAG_SIGNATURE expected %d bytes but got %d", SIGNATURE_LENGTH, len(tag.Data))
-			}
 			base64Str := base64.StdEncoding.EncodeToString(tag.Data)
 			return fmt.Sprintf("TAG=TAG_SIGNATURE Value=%s", base64Str), nil
 		}
@@ -75,31 +71,32 @@ func TagsToRequest(tags []types.Tag) (types.CardDefinitionRequest, error) {
 		case TAG_ATTENDEE_ID:
 			{
 				if len(tag.Data) != 8 {
-					return resp, fmt.Errorf("Tag TAG_ATTENDEE_ID expected 4 bytes but got %d", len(tag.Data))
+					return resp, fmt.Errorf("Tag TAG_ATTENDEE_ID expected 8 bytes but got %d", len(tag.Data))
 				}
 				resp.AttendeeId = binary.BigEndian.Uint32(tag.Data[0:4])
 				resp.ConventionId = binary.BigEndian.Uint32(tag.Data[4:8])
 			}
 		case TAG_SIGNATURE:
 			{
-				if len(tag.Data) != SIGNATURE_LENGTH {
-					return resp, fmt.Errorf("Tag TAG_SIGNATURE expected %d bytes but got %d", SIGNATURE_LENGTH, len(tag.Data))
-				}
 				resp.Signature = base64.StdEncoding.EncodeToString(tag.Data)
 			}
 		case TAG_ISSUANCE:
 			{
-				if len(tag.Data) != 4 {
+				switch len(tag.Data) {
+				case 4:
+					resp.IssuanceCount = binary.BigEndian.Uint32(tag.Data)
+				case 8:
+					resp.IssuanceCount = uint32(binary.BigEndian.Uint64(tag.Data))
+				default:
 					return resp, fmt.Errorf("Tag TAG_ISSUANCE expected 4 bytes but got %d", len(tag.Data))
 				}
-				resp.IssuanceCount = binary.BigEndian.Uint32(tag.Data)
 			}
 		case TAG_TIMESTAMP:
 			{
 				if len(tag.Data) != 8 {
 					return resp, fmt.Errorf("Tag TAG_TIMESTAMP expected 8 bytes but got %d", len(tag.Data))
 				}
-				resp.IssuanceTimestamp = binary.BigEndian.Uint64(tag.Data)
+				resp.IssuanceTimestamp = fmt.Sprintf("%v", binary.BigEndian.Uint64(tag.Data))
 			}
 		case TAG_EXPIRATION:
 			{
@@ -167,16 +164,12 @@ func ValidateSignatureStructure(str string) ([]byte, error) {
 		return []byte{}, err
 	}
 
-	if len(data) != SIGNATURE_LENGTH {
-		return []byte{}, fmt.Errorf("Expected signature to have %d bytes but instead it has %d", SIGNATURE_LENGTH, len(data))
-	}
-
 	return data, nil
 }
 
 func UpdateTagAttendee(tags types.Tag, data types.CardDefinitionRequest) (types.Tag, error) {
 	if data.AttendeeId == 0 || data.ConventionId == 0 {
-		return types.Tag{}, fmt.Errorf("'attendee_id' and 'convention_id' should not be zero or empty")
+		return types.Tag{}, fmt.Errorf("'attendeeId' and 'conventionId' should not be zero or empty")
 	}
 	return NewAttendeeId(data.AttendeeId, data.ConventionId), nil
 }
@@ -198,8 +191,12 @@ func UpdateTags(tags []types.Tag, data types.CardDefinitionRequest) ([]types.Tag
 				tags[idx] = NewIssuance(data.IssuanceCount)
 			}
 		} else if tag.Id == TAG_TIMESTAMP {
-			if data.IssuanceTimestamp != 0 {
-				tags[idx] = NewTimestamp(data.IssuanceTimestamp)
+			if data.IssuanceTimestamp != "" {
+				timestamp, err := strconv.ParseUint(data.IssuanceTimestamp, 10, 64)
+				if err != nil {
+					return nil, err
+				}
+				tags[idx] = NewTimestamp(timestamp)
 			}
 		} else if tag.Id == TAG_EXPIRATION {
 			if data.Expiration != 0 {

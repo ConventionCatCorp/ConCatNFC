@@ -14,12 +14,17 @@ type Tag struct {
 }
 
 type CardDefinitionRequest struct {
-	AttendeeId        uint32 `json:"attendee_id,omitempty"`
-	ConventionId      uint32 `json:"convention_id,omitempty"`
+	AttendeeId        uint32 `json:"attendeeId,omitempty"`
+	ConventionId      uint32 `json:"conventionId,omitempty"`
 	IssuanceCount     uint32 `json:"issuance,omitempty"`
-	IssuanceTimestamp uint64 `json:"timestamp,omitempty"`
+	IssuanceTimestamp string `json:"timestamp,omitempty"`
 	Expiration        uint64 `json:"expiration,omitempty"`
 	Signature         string `json:"signature,omitempty"`
 	Password          uint32 `json:"password,omitempty"`
 	UUID              string `json:"uuid,omitempty"`
+}
+
+type CardReadSetPasswordRequest struct {
+	Password uint32 `json:"password,omitempty"`
+	UUID     string `json:"uuid,omitempty"`
 }

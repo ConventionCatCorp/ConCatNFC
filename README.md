@@ -86,18 +86,24 @@ Content: This content will follow the same TLV format, but with the following ta
 #### Tag 0x02
 
 This tag should be the last tag stored and will serve as the signature tag. It will contain an SHA256 ECDSA signature of all
-TLVs present before this tag. In the event more than one of these tags is present, the signature will include all the
-data since the last signature tag. Multiple signatures should be avoided as this occupies 74 bytes on the tag.
+the fields present before this tag.
+
+**NOTE: The signature is computed over the JSON representation of the tags, not the binary data, since the signature is
+generated outside of the system that is aware of the specific TLV encoding structure.** See the section below on JSON encoding
+for an explanation of this.
+
+In the event more than one of these tags is present, the signature will include all the
+data since the last signature tag. Multiple signatures should be avoided as each signature occupies around 74 bytes on the tag.
 
 Equivalent openssl commands to verify signature implementation:
 
-Create private key: `openssl ecparam -name secp256k1 -genkey -noout -out ec-secp256k1-priv-key.pem`
+Create private key: `openssl ecparam -name prime256v1  -genkey -noout -out ec-256v1-priv-key.pem`
 
-Create public key: `openssl ec -in ec-secp256k1-priv-key.pem -pubout > ec-secp256k1-pub-key.pem`
+Create public key: `openssl ec -in ec-256v1-priv-key.pem -pubout > ec-256v1-pub-key.pem`
 
-Create signature using private key: `openssl dgst -sha256 -sign ec-secp256k1-priv-key.pem data-file > signature.bin`
+Create signature using private key: `openssl dgst -sha256 -sign ec-256v1-priv-key.pem data-file > signature.bin`
 
-Verify signature using public key: `openssl dgst -sha256 -verify ec-secp256k1-pub-key.pem -signature signature.bin data-file`
+Verify signature using public key: `openssl dgst -sha256 -verify ec-256v1-pub-key.pem -signature signature.bin data-file`
 
 #### Tag 0x03
 
@@ -113,3 +119,26 @@ should be updated as well.
 #### Tag 0x05
 
 Tag expiry timestamp. This tag should be considered invalid after this time.
+
+## JSON formats
+
+Here is an example of a JSON response the proxy can return in response to a valid read request:
+```aiignore
+{
+  "card": {
+    "attendeeId": 2,
+    "conventionId": 24535786,
+    "issuance": 32,
+    "timestamp": 1749932218648,
+    "signature": "MEQCIHpXY2gII+lYW6s7NkXrJkLRLDE8KIDB8It/O/5gfIvdAiBFMwKSbLkmwUUrlDdIobSCahZ/xZUvhBK7JCp1UKKv2w=="
+  }
+}
+
+```
+For the purposes of signatures, all the fields (except the signature field) should be sorted alphabetically, and then
+all whitespace stripped, so for the above example, the signed string would be:
+```
+{"attendeeId":2,"conventionId":24535786,"issuance":32,"timestamp":1749932218648}`
+```
+**It is important to make sure there is no CR or LF on the end of the string when computing signatures, especially if you
+using command line tools line openssl**

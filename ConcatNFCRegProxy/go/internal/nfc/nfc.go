@@ -1,8 +1,10 @@
 package nfc
 
 import (
+	"ConcatNFCRegProxy/broker"
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -24,15 +26,19 @@ var OPERATION_READ = []byte{0xFF, 0xB0, 0x00, 0x00, PAGE_SIZE}
 var OPERATION_WRITE = []byte{0xFF, 0xD6, 0x00, 0x00, PAGE_SIZE}
 
 type NFCEnvoriment struct {
-	context        *scard.Context
-	ready          bool
-	Mtx            sync.Mutex
-	readers        []string
-	version        []byte
-	cardConnection *scard.Card
-	buffer         []byte
-	currentPage    byte
-	lastErrorCode  []byte
+	context                *scard.Context
+	ready                  bool
+	Mtx                    sync.Mutex
+	readers                []string
+	version                []byte
+	cardConnection         *scard.Card
+	buffer                 []byte
+	currentPage            byte
+	lastErrorCode          []byte
+	eventBroker            *broker.Broker[string]
+	lastTimeReadersChanged time.Time
+	connectedReaderIndex   int
+	cardStatus             string
 }
 
 type CardInfo struct {
@@ -41,18 +47,122 @@ type CardInfo struct {
 	Memory       int
 }
 
-func BeginNfc() *NFCEnvoriment {
+func BeginNfc(eventBroker *broker.Broker[string]) *NFCEnvoriment {
 	var env NFCEnvoriment
 	var err error
+	env.eventBroker = eventBroker
 	env.context, err = scard.EstablishContext()
 	if err != nil {
 		fmt.Printf("Cannot establish connection to scard: %u", err)
 		return nil
 	}
 
+	go env.eventHandler()
 	go env.lookForDevicesRoutine()
 
 	return &env
+}
+
+func (env *NFCEnvoriment) sendEvent(event string) {
+	message := struct {
+		Event string `json:"Event"`
+	}{
+		Event: event,
+	}
+	jsonData, err := json.Marshal(message)
+	if err == nil {
+		env.eventBroker.Publish(fmt.Sprintf("data: %s\n\n", jsonData))
+	}
+}
+
+func (env *NFCEnvoriment) eventHandler() {
+	var lastTimeReadersChanged time.Time
+	for {
+		if len(env.readers) == 0 {
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		lastTimeReadersChanged = env.GetTimeReadersChanged()
+		//Im leaving it here just in case we decide to use multiple card readers, blep
+		rs := make([]scard.ReaderState, len(env.readers))
+		for i := range rs {
+			rs[i].Reader = env.readers[i]
+			rs[i].CurrentState = scard.StateUnaware
+			rs[i].UserData = scard.StateUnaware
+		}
+
+		for {
+			err := env.context.GetStatusChange(rs, -1)
+			if err != nil {
+				fmt.Printf("eventHandler: Got error: %v\n", err)
+				env.sendEvent("Reader error")
+				env.ready = false
+				if lastTimeReadersChanged != env.GetTimeReadersChanged() {
+					// Break to go and re-read readers
+					fmt.Printf("eventHandler: Readers changed...\n")
+					break
+				}
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			for i := range rs {
+				previousState, ok := rs[i].UserData.(scard.StateFlag)
+				if ok && previousState&(scard.StatePresent|scard.StateEmpty) == rs[i].EventState&(scard.StatePresent|scard.StateEmpty) {
+					continue
+				}
+				fmt.Printf("eventHandler: Reader %d state changed to %08x\n", i, rs[i].EventState)
+				if rs[i].EventState&scard.StatePresent != 0 {
+					fmt.Printf("Got card present on reader %d\n", i)
+					env.Lock()
+					// Connect to the card
+					card, err := env.connectAndValidateCard(i)
+					if err != nil {
+						fmt.Printf("eventHandler: Got error: %v\n", err)
+						env.Unlock()
+					} else {
+						fmt.Printf("Connected to card\n")
+						env.cardConnection = card
+						env.buffer = []byte{}
+						env.connectedReaderIndex = i
+						env.Unlock()
+						env.sendEvent("Card present")
+					}
+				}
+				if rs[i].EventState&scard.StateEmpty != 0 {
+					fmt.Printf("Got card removed on reader %d\n", i)
+					env.Lock()
+					if env.cardConnection != nil {
+						fmt.Printf("Reseted card\n")
+						env.cardConnection.Disconnect(scard.ResetCard)
+					}
+					env.cardConnection = nil
+					env.connectedReaderIndex = -1
+					env.Unlock()
+					env.sendEvent("Card NOT present")
+				}
+				rs[i].CurrentState = rs[i].EventState
+				rs[i].UserData = rs[i].EventState & (scard.StatePresent | scard.StateEmpty)
+			}
+		}
+	}
+}
+
+func (env *NFCEnvoriment) ResetCard() error {
+	fmt.Printf("Resetting card\n")
+	if env.cardConnection == nil {
+		fmt.Printf("No card connected\n")
+		return fmt.Errorf("no card connected")
+	}
+	env.cardConnection.Disconnect(scard.ResetCard)
+	card, err := env.connectAndValidateCard(env.connectedReaderIndex)
+	if err != nil {
+		fmt.Printf("Failed to reconnect: %v\n", err)
+		return err
+	}
+	fmt.Printf("Connected to card\n")
+	env.cardConnection = card
+	env.buffer = []byte{}
+	return nil
 }
 
 func (env *NFCEnvoriment) Lock() {
@@ -69,52 +179,75 @@ func (env *NFCEnvoriment) IsReady() bool {
 	}
 	valid, err := env.context.IsValid()
 	if !valid {
-		fmt.Printf("Lost connection to the scard %s", err.Error())
+		fmt.Printf("Lost connection to the scard %v", err)
 		env.Unready()
 	}
 	return env.ready
 }
 
+func (env *NFCEnvoriment) GetTimeReadersChanged() time.Time {
+	env.Mtx.Lock()
+	defer env.Mtx.Unlock()
+	return env.lastTimeReadersChanged
+}
+
 func (env *NFCEnvoriment) lookForDevicesRoutine() {
 	var err error
-	env.Mtx.Lock()
 	for {
-		readers, err := env.context.ListReaders()
-		if err != nil {
-			fmt.Printf("No device found %s!\n", err.Error())
-			time.Sleep(1 * time.Second)
-			continue
-		}
-		//We'll be using the first connected device.
-		//In the case of multiple devices connected~
-		if len(readers) > 0 {
-			fmt.Printf("Found a device, those are our readers: %v\n", readers)
-			env.readers = []string{readers[0]}
-			env.ready = true
-			break
-		}
-	}
-	env.Mtx.Unlock()
-	//Now periodically we check if the device have been disconnected, if so we drop restart.
-	for {
-		if !env.IsReady() {
-			fmt.Println("Context might be broken, restarting")
-			env.ready = false
-			env.Mtx.Lock()
-			defer env.Mtx.Unlock()
-			for {
-				env.context, err = scard.EstablishContext()
-				if err != nil {
-					fmt.Printf("Cannot establish connection to scard: %s\n", err.Error())
-					continue
+		env.Mtx.Lock()
+		for {
+			readers, err := env.context.ListReaders()
+			if err != nil {
+				fmt.Printf("No device found %s!\n", err.Error())
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			var found bool
+			if len(readers) > 0 {
+				fmt.Printf("Found a device, those are our readers: %v\n", readers)
+				for _, reader := range readers {
+					if strings.Contains(strings.ToLower(reader), "yubico") {
+						fmt.Printf("Ignoring yubico device %s\n", reader)
+						continue
+					}
+					fmt.Printf("Using device %s\n", reader)
+					env.readers = []string{reader}
+					env.ready = true
+					found = true
+					break
 				}
+				if found {
+					break
+				}
+			}
+			time.Sleep(1 * time.Second)
+			env.lastTimeReadersChanged = time.Now()
+		}
+		env.Mtx.Unlock()
+		//Now periodically we check if the device have been disconnected, if so we drop restart.
+		for {
+			if !env.IsReady() {
+				fmt.Println("Context might be broken, restarting")
+				env.ready = false
+				env.Mtx.Lock()
+				env.lastTimeReadersChanged = time.Now()
+				env.readers = []string{}
+
+				for {
+					env.context, err = scard.EstablishContext()
+					if err != nil {
+						fmt.Printf("Cannot establish connection to scard: %s\n", err.Error())
+						time.Sleep(1 * time.Second)
+						continue
+					}
+					break
+				}
+				env.Mtx.Unlock()
 				break
 			}
-			break
+			time.Sleep(1 * time.Second)
 		}
-		time.Sleep(1 * time.Second)
 	}
-	env.lookForDevicesRoutine()
 }
 
 func (env *NFCEnvoriment) Unready() {
@@ -152,20 +285,25 @@ func (env *NFCEnvoriment) waitUntilCardPresent(maxWaitTime time.Duration) (int, 
 }
 
 func (env *NFCEnvoriment) transmitAndValidate(card *scard.Card, message []byte) (bool, []byte, error) {
+	if !env.IsReady() {
+		return false, nil, fmt.Errorf("card not ready")
+	}
+	if card == nil {
+		return false, nil, fmt.Errorf(env.cardStatus)
+	}
 	rsp, err := card.Transmit(message)
 	if err != nil {
 		return false, []byte{}, err
 	}
 
 	if len(rsp) < 2 {
-		log.Fatal("Not enough bytes in answer. Try again")
+		log.Printf("Not enough bytes in answer. Try again")
 		return false, []byte{}, fmt.Errorf("Unexpected response")
 	}
 
 	rspCodeBytes := rsp[len(rsp)-2:]
-	successResponseCode := []byte{0x90, 0x00}
 
-	if !bytes.Equal(rspCodeBytes, successResponseCode) {
+	if rsp[len(rsp)-2] != 0x90 {
 		env.lastErrorCode = rspCodeBytes
 		return false, rsp[0 : len(rsp)-2], fmt.Errorf("Operation failed to complete. Error code % x\n", rspCodeBytes)
 	}
@@ -197,53 +335,96 @@ func (env *NFCEnvoriment) transmitVendorCommand(card *scard.Card, vendorCommand 
 	return success, resp[2:], err
 }
 
-func (env *NFCEnvoriment) connectAndValidateCard(index int) (*scard.Card, error) {
-	card, err := env.context.Connect(env.readers[index], scard.ShareShared, scard.ProtocolAny)
+// controlLEDAndBuzzer sends a command to the ACR122U to control the LED and buzzer
+// See ACR122U v2.04 p22
+func (env *NFCEnvoriment) controlLEDAndBuzzer(red bool, green bool, buzzerDurationMS uint, buzzerRepeat uint8) error {
+	var command []byte
+
+	var LEDState uint8
+	var Buzzer uint8
+	if red {
+		LEDState |= 0x5
+	}
+	if green {
+		LEDState |= 0xa
+	}
+	Buzzer = 0x1
+	var duration uint8
+	if buzzerDurationMS/100 > 255 {
+		duration = 255
+	} else {
+		duration = uint8(buzzerDurationMS / 100)
+	}
+
+	command = append(command, []byte{0xff, 0x00, 0x40, LEDState, 0x4, duration, duration, buzzerRepeat, Buzzer}...)
+	success, _, err := env.transmitAndValidate(env.cardConnection, command)
 	if err != nil {
-		fmt.Printf("Failed to connect to card: %s\n", err.Error())
-		env.Unready()
-		return nil, err
+		return err
 	}
-
-	status, err := card.Status()
-	if err != nil {
-		return nil, err
-	}
-
-	if len(status.Atr) < 15 {
-		card.Disconnect(scard.ResetCard)
-		return nil, fmt.Errorf("Card ATR is too short")
-	}
-	// Need to check for MIFARE Ultralight
-	rspCodeBytes := status.Atr[:15]
-	if !bytes.Equal(rspCodeBytes, OPERATION_GET_SUPPORTED_CARD_SIGNATURE) {
-		card.Disconnect(scard.ResetCard)
-		return nil, fmt.Errorf("Operation failed to complete. Error code % x\n", rspCodeBytes)
-	}
-
-	success, version, err := env.transmitVendorCommand(card, []byte{0x60})
-	if err != nil {
-		return nil, err
-	}
-	if version[0] != 0x0 {
-		return nil, fmt.Errorf("Vendor command failed with error code %x\n", version[0])
-	}
-	env.version = version[1:]
-
 	if !success {
-		return nil, fmt.Errorf("Operation failed")
+		return fmt.Errorf("failed to transmit led")
 	}
-	if len(version) < 9 {
-		card.Disconnect(scard.ResetCard)
-		return nil, fmt.Errorf("Got short response from GET_VERISON")
-	}
+	return nil
+}
 
-	if !bytes.Equal(version[1:7], SUPPORTED_CARD) {
-		card.Disconnect(scard.ResetCard)
-		return nil, fmt.Errorf("Unsupported card: % x\n", rspCodeBytes)
-	}
+func (env *NFCEnvoriment) connectAndValidateCard(index int) (*scard.Card, error) {
+	var finalError error
+	for retry := 0; retry < 4; retry++ {
+		card, err := env.context.Connect(env.readers[index], scard.ShareShared, scard.ProtocolAny)
+		if err != nil {
+			fmt.Printf("Failed to connect to card: %s\n", err.Error())
+			env.Unready()
+			return nil, err
+		}
 
-	return card, nil
+		status, err := card.Status()
+		if err != nil {
+			return nil, err
+		}
+
+		if len(status.Atr) < 15 {
+			card.Disconnect(scard.ResetCard)
+			return nil, fmt.Errorf("Card ATR is too short")
+		}
+		// Need to check for MIFARE Ultralight
+		rspCodeBytes := status.Atr[:15]
+		if !bytes.Equal(rspCodeBytes, OPERATION_GET_SUPPORTED_CARD_SIGNATURE) {
+			env.cardStatus = "Unsupported card"
+			card.Disconnect(scard.ResetCard)
+			return nil, fmt.Errorf("Unsupported card")
+		}
+		success, version, err := env.transmitVendorCommand(card, []byte{0x60})
+		if err != nil {
+			return nil, err
+		}
+		if version[0] != 0x0 {
+			finalError = fmt.Errorf("Vendor command failed with error code %x\n", version[0])
+			fmt.Printf(finalError.Error())
+			card.Disconnect(scard.ResetCard)
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		env.version = version[1:]
+
+		if !success {
+			return nil, fmt.Errorf("Operation failed")
+		}
+		if len(version) < 9 {
+			card.Disconnect(scard.ResetCard)
+			finalError = fmt.Errorf("Got short response from GET_VERISON")
+			fmt.Printf(finalError.Error())
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
+		if !bytes.Equal(version[1:7], SUPPORTED_CARD) {
+			card.Disconnect(scard.ResetCard)
+			return nil, fmt.Errorf("Unsupported card: % x\n", rspCodeBytes)
+		}
+
+		return card, nil
+	}
+	return nil, finalError
 }
 
 func (env *NFCEnvoriment) GetUUID() (string, error) {
@@ -278,7 +459,7 @@ func (env *NFCEnvoriment) parseNtagVersion(ver byte, ci *CardInfo) (*CardInfo, e
 
 func (env *NFCEnvoriment) getCardInfo() (*CardInfo, error) {
 	ci := new(CardInfo)
-	if len(env.version) < 6 {
+	if len(env.version) < 8 {
 		return nil, fmt.Errorf("Unsupported card")
 	}
 	switch env.version[1] { // NXP
@@ -289,7 +470,7 @@ func (env *NFCEnvoriment) getCardInfo() (*CardInfo, error) {
 		return nil, fmt.Errorf("Unsupported card")
 	}
 
-	if env.version[2] != 0x04 && env.version[3] != 0x02 && env.version[4] != 0x01 {
+	if env.version[2] != 0x04 || env.version[3] != 0x02 || env.version[4] != 0x01 {
 		return nil, fmt.Errorf("Unsupported card")
 	}
 
@@ -349,13 +530,21 @@ func (env *NFCEnvoriment) SetNTAG21xPassword(password uint32) error {
 	if err != nil {
 		return err
 	}
-	env.setPage(cfgStartPage)
-	cfgBytes, err = env.readBytes(16)
+
+	// Need to reset our connection to the card for the password to take effect
+	err = env.ResetCard()
 	if err != nil {
 		return err
 	}
+
 	// Auth to card so we don't lock ourselves out
 	err = env.NTAG21xAuth(password)
+	if err != nil {
+		return err
+	}
+
+	env.setPage(cfgStartPage)
+	cfgBytes, err = env.readBytes(16)
 	if err != nil {
 		return err
 	}
@@ -511,35 +700,13 @@ func (env *NFCEnvoriment) writePage(pageNumber byte, data []byte) error {
 	return nil
 }
 
-func (env *NFCEnvoriment) EndConnection() {
-	if env.cardConnection != nil {
-		fmt.Printf("Reseted card\n")
-		env.cardConnection.Disconnect(scard.ResetCard)
-	}
-	env.cardConnection = nil
-}
-
-func (env *NFCEnvoriment) StartConnection() error {
-	index, err := env.waitUntilCardPresent(time.Second * 20)
-	if err != nil {
-		fmt.Printf("Failed to get card information: %s\n", err.Error())
-		env.Unready()
-		return err
-	}
-
-	// Connect to the card
-	card, err := env.connectAndValidateCard(index)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Connected to card\n")
-	env.cardConnection = card
-	env.buffer = []byte{}
-	return nil
+func (env *NFCEnvoriment) CheckCardConnected() bool {
+	return env.cardConnection != nil
 }
 
 func (env *NFCEnvoriment) setPage(page byte) {
 	env.currentPage = page
+	env.buffer = []uint8{}
 }
 
 func (env *NFCEnvoriment) readByte() (byte, error) {
@@ -597,7 +764,7 @@ func (env *NFCEnvoriment) WriteTags(tags []types.Tag) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("[DEBUG] Writing tag lenght=%d\n", byte(len(tag.Data)))
+		fmt.Printf("[DEBUG] Writing tag length=%d\n", byte(len(tag.Data)))
 		accumulatedBytes = append(accumulatedBytes, byte(len(tag.Data)))
 		accumulatedBytes, _, err = env.checkAndTransmit(accumulatedBytes)
 		if err != nil {
@@ -630,12 +797,16 @@ func (env *NFCEnvoriment) WriteTags(tags []types.Tag) error {
 	return env.cardConnection.EndTransaction(0)
 }
 
+func (env *NFCEnvoriment) BeepReader() error {
+	return env.controlLEDAndBuzzer(false, true, 100, 2)
+}
+
 func (env *NFCEnvoriment) ReadTags() ([]types.Tag, error) {
 
 	var tags []types.Tag
 	var tagId byte
 	var err error
-	var tagLenght byte
+	var tagLength byte
 	var readByte byte
 	env.setPage(STARTING_REGION)
 	for {
@@ -647,16 +818,16 @@ func (env *NFCEnvoriment) ReadTags() ([]types.Tag, error) {
 			return tags, nil
 		}
 		fmt.Printf("[DEBUG] Found tag 0x%x\n", tagId)
-		tagLenght, err = env.readByte()
+		tagLength, err = env.readByte()
 		if err != nil {
 			return tags, err
 		}
-		fmt.Printf("[DEBUG] Tag lenght is %d\n", int(tagLenght))
-		if tagLenght == 0x00 {
-			return tags, fmt.Errorf("Tag lenght is zero. Probally corrupt data")
+		fmt.Printf("[DEBUG] Tag length is %d\n", int(tagLength))
+		if tagLength == 0x00 {
+			return tags, fmt.Errorf("Tag length is zero. Probally corrupt data")
 		}
 		var tagBytes []byte
-		for i := 0; i < int(tagLenght); i++ {
+		for i := 0; i < int(tagLength); i++ {
 			readByte, err = env.readByte()
 			if err != nil {
 				return tags, err

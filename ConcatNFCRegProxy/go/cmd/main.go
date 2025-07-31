@@ -152,8 +152,8 @@ func (h *HandlerContext) readData(c *gin.Context) {
 	}
 
 	if len(readTags) == 0 {
-		response.Error = "Card is empty!"
-		c.JSON(http.StatusExpectationFailed, response)
+		response.Error = "Card is empty"
+		c.JSON(http.StatusOK, response)
 		return
 	}
 

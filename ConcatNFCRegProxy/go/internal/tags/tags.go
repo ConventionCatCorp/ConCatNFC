@@ -82,10 +82,14 @@ func TagsToRequest(tags []types.Tag) (types.CardDefinitionRequest, error) {
 			}
 		case TAG_ISSUANCE:
 			{
-				if len(tag.Data) != 4 {
+				switch len(tag.Data) {
+				case 4:
+					resp.IssuanceCount = binary.BigEndian.Uint32(tag.Data)
+				case 8:
+					resp.IssuanceCount = uint32(binary.BigEndian.Uint64(tag.Data))
+				default:
 					return resp, fmt.Errorf("Tag TAG_ISSUANCE expected 4 bytes but got %d", len(tag.Data))
 				}
-				resp.IssuanceCount = binary.BigEndian.Uint32(tag.Data)
 			}
 		case TAG_TIMESTAMP:
 			{

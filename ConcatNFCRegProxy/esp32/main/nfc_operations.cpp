@@ -6,11 +6,14 @@
 #define TAG "main"
 
 
-esp_err_t get_uuid(PN532 *nfc, uint8_t *uuid, uint8_t *uidLength) {
+esp_err_t get_uuid(PN532 *nfc, uint8_t *uuid, uint8_t *uidLength, int32_t timeoutMs) {
     ESP_LOGD(TAG, "Waiting for an ISO14443A Card...");
 
     // Wait for an ISO14443A type cards (Mifare, etc.) with a timeout.
-    return nfc->pn532_read_passive_target_id(PN532_BRTY_ISO14443A_106KBPS, uuid, uidLength, 1000);
+    if (timeoutMs == -1){
+        timeoutMs = 1000;
+    }
+    return nfc->pn532_read_passive_target_id(PN532_BRTY_ISO14443A_106KBPS, uuid, uidLength, timeoutMs);
 }
 
 esp_err_t set_nfc_password(PN532 *nfc, uint32_t pwd) {

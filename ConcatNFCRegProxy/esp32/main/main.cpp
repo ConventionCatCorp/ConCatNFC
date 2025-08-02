@@ -144,6 +144,31 @@ static int wait_for_card(int argc, char **argv)
     return 0;
 }
 
+
+
+
+static int quick_read(int argc, char **argv)
+{
+    uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
+    uint8_t uidLength;                        // Length of the UID (4 or 7 bytes depending on ISO14443A card type)
+
+    ESP_LOGD(TAG, "Waiting for an ISO14443A Card...");
+    
+    // Wait for an ISO14443A type cards (Mifare, etc.) with a timeout.
+    err = get_uuid(nfc, uid, &uidLength, 200);
+
+    if (err == ESP_OK) {
+        ESP_LOGD(TAG, "Found an ISO14443A card");
+        printf("{\"present\":1}\n");
+        gpio_set_level(GPIO_NUM_5, 1); 
+    } else {
+        ESP_LOGD(TAG, "Could not find a card.");
+        gpio_set_level(GPIO_NUM_5, 0); 
+        printf("{\"present\": 0}\n");
+    }
+    return 0;
+}
+
 static int uuid(int argc, char **argv)
 {
     uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
@@ -678,6 +703,13 @@ static void register_nfc_scan(void)
             .func = &set_password,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&cmd9));
+    const esp_console_cmd_t cmd10 = {
+            .command = "quick_read",
+            .help = "quick read to check if there is a card",
+            .hint = NULL,
+            .func = &quick_read,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd10));
 }
 
 extern "C" void app_main(void) {

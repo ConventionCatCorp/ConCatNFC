@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -92,8 +93,12 @@ func (env *NFCEnvoriment) eventHandler() {
 		}
 
 		for {
-			err := env.context.GetStatusChange(rs, -1)
+			err := env.context.GetStatusChange(rs, 50*time.Millisecond)
 			if err != nil {
+				if errors.Is(err, scard.ErrTimeout) {
+					time.Sleep(100 * time.Millisecond)
+					continue
+				}
 				fmt.Printf("eventHandler: Got error: %v\n", err)
 				env.sendEvent("Reader error")
 				env.ready = false

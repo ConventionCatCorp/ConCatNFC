@@ -1,0 +1,18 @@
+{
+  "folders": [
+    {
+      "path": "./ConcatNFCRegProxy/esp32"
+    }
+  ],
+  "settings": {
+    "idf.pythonInstallPath": "/opt/esp/python_env/idf6.0_py3.12_env/bin/python",
+    "idf.port": "/dev/ttyACM0",
+    "idf.openOcdConfigs": [
+      "board/esp32s3-builtin.cfg"
+    ],
+    "idf.customExtraVars": {
+      "IDF_TARGET": "esp32s3"
+    },
+    "idf.flashType": "UART"
+  }
+}

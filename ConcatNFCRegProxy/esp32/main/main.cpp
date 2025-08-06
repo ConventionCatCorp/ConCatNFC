@@ -19,6 +19,12 @@
 #include <cJSON.h>
 #define TAG "main"
 
+// ESP32S3 standard dev board layout
+#define HSU_HOST_RX GPIO_NUM_18
+#define HSU_HOST_TX GPIO_NUM_17
+#define HSU_UART_PORT UART_NUM_1
+#define HSU_BAUD_RATE 115200
+
 static PN532 *nfc;
 static ConCatTag *Tags;
 esp_err_t err;
@@ -28,7 +34,13 @@ bool debug_enabled = false;
 bool setup(void) {
     ESP_LOGI(TAG, "init PN532 in HSU mode");
 
-    PN532Interface *interface = new PN532InterfaceHSU(GPIO_NUM_19, GPIO_NUM_18, GPIO_NUM_NC, GPIO_NUM_NC, UART_NUM_1, 115200);
+    PN532Interface *interface = new PN532InterfaceHSU(
+        HSU_HOST_RX,
+        HSU_HOST_TX,
+        GPIO_NUM_NC,
+        GPIO_NUM_NC,
+        HSU_UART_PORT,
+        HSU_BAUD_RATE);
     nfc = new PN532(interface);
 
     gpio_reset_pin(GPIO_NUM_5);

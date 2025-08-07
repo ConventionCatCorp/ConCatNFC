@@ -26,6 +26,24 @@ esp_err_t set_nfc_password(PN532 *nfc, uint32_t pwd) {
     return ESP_OK;
 }
 
+esp_err_t clear_nfc_password(PN532 *nfc, uint32_t pwd) {
+ 
+    uint8_t passwordBytes[4];
+    uint32_to_big_endian_bytes(pwd, passwordBytes);
+    esp_err_t err = nfc->ntag2xx_authenticate(passwordBytes);
+     if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error authenticating for password clear: %s", esp_err_to_name(err));
+        return err;
+    }
+    ESP_LOGD(TAG, "Clearing password on card");
+    err = nfc->ntag2xx_clear_password();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error clearing password: %s", esp_err_to_name(err));
+        return err;
+    }
+    return ESP_OK;
+}
+
 bool is_valid_tag(ConCatTag *tags) {
     ESP_LOGD(TAG, "Get tag type");
     return tags->IsTagModelValid();

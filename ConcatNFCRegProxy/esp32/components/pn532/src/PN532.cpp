@@ -430,6 +430,56 @@ esp_err_t PN532::ntag2xx_get_model( NTAG2XX_INFO *model)
     return err;
 }*/
 
+esp_err_t PN532::ntag2xx_clear_password() {
+    NTAG2XX_INFO model;
+    esp_err_t err = ntag2xx_get_model(&model);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get NTAG model");
+        return err;
+    }
+
+    if (model.model == NTAG2XX_UNKNOWN) {
+        ESP_LOGE(TAG, "Unsupported NTAG model");
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    // Write blank password (0xFFFFFFFF) to password page
+    uint8_t blankPassword[4] = {0xFF, 0xFF, 0xFF, 0xFF};
+    err = ntag2xx_write_page(model.passwordPage, blankPassword);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to clear password bytes (page 0x%02X)", model.passwordPage);
+        return err;
+    }
+
+    // Read current configuration
+    uint8_t configData[16]; // We need 2 pages (8 bytes)
+    err = ntag2xx_read_page(model.configPage, configData, sizeof(configData));
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read config pages");
+        return err;
+    }
+
+    // Set starting page for protection to 0xFF (beyond end of device)
+    configData[3] = 0xFF;
+    // Clear PROT bit (bit 7 of byte 4)
+    configData[4] &= 0x7F;
+
+    // Write back modified configuration
+    err = ntag2xx_write_page(model.configPage, configData);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to write config page 0");
+        return err;
+    }
+
+    err = ntag2xx_write_page(model.configPage + 1, configData + 4);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to write config page 1");
+        return err;
+    }
+
+    ESP_LOGI(TAG, "Password protection cleared successfully");
+    return ESP_OK;
+}
 
 esp_err_t PN532::ntag2xx_set_password(uint32_t password) {
     // First authenticate with the tag (if already protected)

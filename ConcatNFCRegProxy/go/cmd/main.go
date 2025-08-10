@@ -17,6 +17,7 @@ import (
 
 type NFCInterface interface {
 	IsReady() bool
+	Reset() error
 	GetUUID() (string, error)
 	SetNTAG21xPassword(password uint32) error
 	IsAuthRequired() bool
@@ -60,6 +61,27 @@ func (h *HandlerContext) waitForCardReady(c *gin.Context) bool {
 
 func (h *HandlerContext) releaseCard() {
 	h.env.Unlock()
+}
+
+func (h *HandlerContext) resetCard(c *gin.Context) {
+	var response types.Response
+
+	env := h.env
+	success := h.waitForCardReady(c)
+	defer h.releaseCard()
+	if !success {
+		response.Error = fmt.Sprintf("Card not ready")
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+	err := env.Reset()
+	if err != nil {
+		response.Error = err.Error()
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+	response.Success = true
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *HandlerContext) getUUID(c *gin.Context) {
@@ -479,6 +501,7 @@ func main() {
 
 	r.GET("/healthcheck", handler.healthcheck)
 	r.GET("/uuid", handler.getUUID)
+	r.GET("/reset", handler.resetCard)
 
 	r.POST("/write", handler.writeData)
 	r.PATCH("/write", handler.updateData)

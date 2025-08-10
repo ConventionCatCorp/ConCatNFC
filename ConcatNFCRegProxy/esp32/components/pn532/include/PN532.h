@@ -263,5 +263,6 @@ public:
                               uart_port_t uart_port = UART_NUM_MAX);
 
     esp_err_t pn532_reset_card();
+    esp_err_t pn532_deselect_card();
 };
 #endif //CONCAT_NFC_PROXY_ESP32_PN532_H

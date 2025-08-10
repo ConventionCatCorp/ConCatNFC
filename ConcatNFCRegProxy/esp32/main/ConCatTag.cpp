@@ -463,8 +463,12 @@ bool ConCatTag::writeTags(TagArray &tags){
 }
 
 
-void ConCatTag::reset() {
-    nfc->pn532_reset_card();
+bool ConCatTag::reset() {
     tagMemory.clear();
     bytePosition = 0;
+    esp_err_t err = nfc->pn532_reset_card();
+    if (err != ESP_OK) {
+        return false;
+    }
+    return true;
 }

@@ -445,6 +445,14 @@ func (env *NFCEnvoriment) GetUUID() (string, error) {
 	return fmt.Sprintf("%x", body), nil
 }
 
+func (env *NFCEnvoriment) Reset() error {
+	err := env.ResetCard()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (env *NFCEnvoriment) parseNtagVersion(ver byte, ci *CardInfo) (*CardInfo, error) {
 	switch ver {
 	case 0x0f:

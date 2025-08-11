@@ -12,8 +12,9 @@ android {
         applicationId = "app.concat.nfcvalidator"
         minSdk = 24
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.1b"
+        versionCode = 5
+        versionName = "0.2a"
+
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -23,8 +24,9 @@ android {
             ndk {
                 debugSymbolLevel = "FULL"
             }
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
+            isShrinkResources = false
+
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

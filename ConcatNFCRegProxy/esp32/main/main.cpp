@@ -12,18 +12,37 @@
 #include "linenoise/linenoise.h"
 #include "esp_log_level.h"
 
+
+
 #include "PN532.h"
 #include "PN532InterfaceHSU.h"
 #include "nfc_operations.h"
 #include "ConCatTag.h"
 #include <cJSON.h>
+#include "leds.h"
+#include "led_strip.h"
+#include "esp_log.h"
+#include "esp_err.h"
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 #define TAG "main"
 
-static PN532 *nfc;
+bool debug_enabled = false;
+static PN532 *nfc; 
 static ConCatTag *Tags;
 esp_err_t err;
 
-bool debug_enabled = false;
+
+TaskHandle_t my_task_handle = NULL;
+
+
+
+extern LedState g_ledState;
+extern uint8_t g_r,g_g,g_b;
+extern led_strip_handle_t g_led_strip;
+
 
 bool setup(void) {
     ESP_LOGI(TAG, "init PN532 in HSU mode");
@@ -33,6 +52,8 @@ bool setup(void) {
 
     gpio_reset_pin(GPIO_NUM_5);
     gpio_set_direction(GPIO_NUM_5, GPIO_MODE_OUTPUT);
+
+    configure_led();
 
     do {
         err = nfc->m_Interface->pn532_init();
@@ -44,6 +65,22 @@ bool setup(void) {
     } while(err != ESP_OK);
     Tags = new ConCatTag(nfc);
     printf("init_PN532_SPI success\n");
+
+    for (int i = 0; i < LED_STRIP_LED_COUNT; i++) {
+        ESP_ERROR_CHECK(led_strip_set_pixel(g_led_strip, i, 5, 5, 5));
+    }
+    /* Refresh the strip to send data */
+    ESP_ERROR_CHECK(led_strip_refresh(g_led_strip));
+
+    xTaskCreate(
+        led_loop,            // Task function
+        "My Task",          // Name of task
+        2048,               // Stack size (in words, 2048 * 4 = 8192 bytes)
+        NULL,               // Parameter passed as input to the task
+        tskIDLE_PRIORITY+1, // Priority (higher number = higher priority)
+        &my_task_handle     // Task handle
+    );
+    
     return true;
 }
 
@@ -141,6 +178,66 @@ static int wait_for_card(int argc, char **argv)
     } else {
         printf("Not detected\n");
     }
+    return 0;
+}
+
+static int set_led_color(int argc, char **argv){
+    if (argc < 3) {
+        printf("{\"success\":false,\"error\":\"Not enough arguments\"}\n");
+        return 0;
+    }
+
+    char *mode_str = argv[1];
+    char *color_str = argv[2];
+
+    if (strcmp(mode_str, "static") == 0){
+        g_ledState = LED_STATE_STATIC_COLOR;
+    }else if (strcmp(mode_str, "rainbow") == 0){
+        g_ledState = LED_STATE_RAINBOW;
+        printf("{\"success\":true}\n");
+        return 0;
+    }else if (strcmp(mode_str, "alternating") == 0){
+        g_ledState = LED_STATE_ALTERNATING;
+    }else if (strcmp(mode_str, "pulsating") == 0){
+        g_ledState = LED_STATE_PULSATING;
+    }else{
+        printf("{\"success\":false,\"error\":\"Invalid led mode\"}\n");
+        return 0;
+    }
+
+    
+    if (strlen(color_str) != 7 || color_str[0] != '#') {
+        printf("{\"success\":false,\"error\":\"Invalid color format. Expected #RRGGBB\"}\n");
+        return 0;
+    }
+
+
+    
+    unsigned int r, g, b;
+    if (sscanf(color_str + 1, "%02x%02x%02x", &r, &g, &b) != 3) {
+        printf("{\"success\":false,\"error\":\"Failed to parse color values\"}\n");
+        return 0;
+    }
+
+    g_r = r;
+    g_g = g;
+    g_b = b;
+
+    if (g_ledState == LED_STATE_STATIC_COLOR){
+        for (int i = 0; i < LED_STRIP_LED_COUNT; i++) {
+            ESP_ERROR_CHECK(led_strip_set_pixel(g_led_strip, i, adjustBrightness(r), adjustBrightness(g), adjustBrightness(b)));
+        }
+    }else if (g_ledState == LED_STATE_ALTERNATING){
+        for (int i = 0; i < LED_STRIP_LED_COUNT; i++) {
+            if (i%2 == 0){
+                ESP_ERROR_CHECK(led_strip_set_pixel(g_led_strip, i, adjustBrightness(r), adjustBrightness(g), adjustBrightness(b)));
+            }else{
+                ESP_ERROR_CHECK(led_strip_set_pixel(g_led_strip, i, 0, 0, 0));
+            }
+        }
+    }
+
+    printf("{\"success\":true}\n");
     return 0;
 }
 
@@ -793,7 +890,15 @@ static void register_nfc_scan(void)
             .func = &reset,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&cmd12));
+    const esp_console_cmd_t cmd13 = {
+            .command = "led",
+            .help = "set led color:   led static #ff00ff. Avaliable: static, rainbow, alternating, pulsating",
+            .hint = NULL,
+            .func = &set_led_color,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd13));
 }
+
 
 extern "C" void app_main(void) {
     setup();
@@ -811,6 +916,9 @@ extern "C" void app_main(void) {
     printf("\nNFC reader console\n");
     printf("Type 'help' to get the list of commands.\n");
     printf("Type 'scan' to scan for a card.\n\n");
+
+
+
 
     /* Main loop */
     while(true) {
@@ -833,5 +941,6 @@ extern "C" void app_main(void) {
             printf("Internal error: %s\n", esp_err_to_name(err_console));
         }
         linenoiseFree(line);
+
     }
 }

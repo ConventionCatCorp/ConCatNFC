@@ -3,5 +3,6 @@ idf_component_register(
             main.cpp
             nfc_operations.cpp
             ConCatTag.cpp
+            leds.cpp
         PRIV_REQUIRES spi_flash esp_driver_gpio esp_driver_spi esp_driver_uart log pn532 console mbedtls json
         INCLUDE_DIRS ".")

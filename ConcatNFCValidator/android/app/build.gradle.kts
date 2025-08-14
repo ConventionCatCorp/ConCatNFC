@@ -5,22 +5,28 @@ plugins {
 }
 
 android {
-    namespace = "com.example.concatnfc"
+    namespace = "app.concat.nfcvalidator"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.concatnfc"
+        applicationId = "app.concat.nfcvalidator"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 6
+        versionName = "0.2b"
+
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
+            ndk {
+                debugSymbolLevel = "FULL"
+            }
             isMinifyEnabled = false
+            isShrinkResources = false
+
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

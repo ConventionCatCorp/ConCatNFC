@@ -130,7 +130,7 @@ public:
     bool writeTags(TagArray &tags);
     bool writePage(uint8_t pageAddress, ByteArray data);
 
-    void reset();
+    bool reset();
 
     PN532 *nfc;
 private:

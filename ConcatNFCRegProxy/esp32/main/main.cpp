@@ -263,6 +263,19 @@ static int quick_read(int argc, char **argv)
     return 0;
 }
 
+static int reset(int argc, char **argv)
+{
+    ESP_LOGD(TAG, "Resetting card...");
+    err = nfc->pn532_deselect_card();
+    bool result = Tags->reset();
+    if (result && err == ESP_OK) {
+        printf("{\"success\":true}\n");
+    } else {
+        printf("{\"success\":false}\n");
+    }
+    return 0;
+}
+
 static int uuid(int argc, char **argv)
 {
     uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
@@ -871,12 +884,19 @@ static void register_nfc_scan(void)
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&cmd11));
     const esp_console_cmd_t cmd12 = {
+            .command = "reset",
+            .help = "Resets the card",
+            .hint = NULL,
+            .func = &reset,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd12));
+    const esp_console_cmd_t cmd13 = {
             .command = "led",
             .help = "set led color:   led static #ff00ff. Avaliable: static, rainbow, alternating, pulsating",
             .hint = NULL,
             .func = &set_led_color,
     };
-    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd12));
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd13));
 }
 
 

@@ -155,6 +155,38 @@ esp_err_t PN532::pn532_reset_card() {
     return ESP_OK;
 }
 
+esp_err_t PN532::pn532_deselect_card() {
+    pn532_packetbuffer[0] = PN532_COMMAND_INDESELECT;
+    pn532_packetbuffer[1] = 0x00;
+
+    esp_err_t err = m_Interface->pn532_send_command_wait_ack(pn532_packetbuffer, 2, PN532_WRITE_TIMEOUT);
+    if (ESP_OK != err) {
+#ifdef CONFIG_PN532DEBUG
+        ESP_LOGD(TAG, "No card(s) read");
+#endif
+        return err;
+    }
+
+#ifdef CONFIG_PN532DEBUG
+    ESP_LOGD(TAG, "Waiting for IRQ (indicates card presence)");
+#endif
+    err = m_Interface->pn532_wait_ready(PN532_READ_TIMEOUT);
+    if (ESP_OK != err) {
+#ifdef CONFIG_PN532DEBUG
+        ESP_LOGD(TAG, "PN532 not ready, timeout or error occurred");
+#endif
+        return err;
+    }
+#ifdef CONFIG_PN532DEBUG
+    ESP_LOGD(TAG, "PN532 ready. Reading data packet");
+#endif
+    err = m_Interface->pn532_read_data(pn532_packetbuffer, 32, 1000);
+    if (ESP_OK != err)
+        return err;
+    return ESP_OK;
+}
+
+
 esp_err_t PN532::pn532_read_passive_target_id(
                                        uint8_t baud_rate_and_card_type,
                                        uint8_t *uid,

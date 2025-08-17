@@ -6,7 +6,7 @@ import retrofit2.Response
 import retrofit2.http.*
 
 data class NfcPasswordResponse(
-    val password: UInt
+    val password: Long // Workaround for GSON's brain-dead JSON parser which treats a UInt as Int
 )
 
 class JWK(
@@ -32,10 +32,10 @@ interface AuthService {
         @Body loginRequest: LoginRequest
     ): Response<ResponseBody>
     
-    @GET("api/badge/nfc/password")
+    @GET("api/badge/nfc/{uuid}/password")
     @Headers("Accept: application/json")
     suspend fun getNfcPassword(
-        @Query("uuid") uuid: String
+        @Path("uuid") uuid: String
     ): Response<NfcPasswordResponse>
 
     @GET("api/nfc/key")

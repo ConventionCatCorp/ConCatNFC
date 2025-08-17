@@ -337,17 +337,17 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             try {
                 ApiClient.getAuthService(baseUrl).getNfcPassword(uuid)
             } catch (e: Exception) {
-                null
+                throw APIError(500, "Error: ${e.message}")
             }
         }
 
-        if (response?.isSuccessful == true) {
+        if (response.isSuccessful == true) {
             if (response.body()?.password == null) {
                 throw APIError(500, "Error: No password in response")
             }
-            return response.body()?.password!!
+            return response.body()?.password!!.toUInt()
         } else {
-            throw APIError(responseCode = response?.code() ?: -1, message = response?.message() ?: "Unknown error")
+            throw APIError(responseCode = response.code(), message = response.message())
         }
     }
 

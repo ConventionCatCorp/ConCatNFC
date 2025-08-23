@@ -422,6 +422,7 @@ esp_err_t PN532::ntag2xx_get_model( NTAG2XX_INFO *model)
             model->passwordPage = 0x2B;
             model->configPage = 0x29;
             model->auth0Page = 0x2A;
+            model->lastUserMemoryPage = 0x27;
             break;
 
         case 0x3e:
@@ -429,6 +430,7 @@ esp_err_t PN532::ntag2xx_get_model( NTAG2XX_INFO *model)
             model->passwordPage = 0x85;
             model->configPage = 0x83;
             model->auth0Page = 0x84;
+            model->lastUserMemoryPage = 0x81;
             break;
 
         case 0x6d:
@@ -436,6 +438,7 @@ esp_err_t PN532::ntag2xx_get_model( NTAG2XX_INFO *model)
             model->passwordPage = 0xE5;
             model->configPage = 0xE3;
             model->auth0Page = 0xE4;
+            model->lastUserMemoryPage = 0xE1;
             break;
 
         default:

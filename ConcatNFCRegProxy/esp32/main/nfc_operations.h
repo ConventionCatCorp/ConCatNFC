@@ -17,5 +17,6 @@ returnData write_on_card(TagArray tagsNew, ConCatTag *tags, uint8_t expectedUUID
 bool is_valid_tag(ConCatTag *tags);
 esp_err_t get_uuid(PN532 *nfc, uint8_t *uuid, uint8_t *uidLength, int32_t timeoutMs=-1);
 returnData read_tag_data(CardDefinition &tagsRead, ConCatTag *tags, uint8_t expectedUUID[], uint8_t expectedUUIDLength, uint32_t *password);
+returnData format_card(ConCatTag *tags, uint8_t expectedUUID[], uint8_t expectedUUIDLength, uint32_t *password);
 
 #endif

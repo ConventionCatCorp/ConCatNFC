@@ -414,6 +414,28 @@ TagArrayStatus ConCatTag::readTags() {
     return {tags, 0};
 }
 
+bool ConCatTag::format(){
+    uint8_t page = tagStartPage;
+    NTAG2XX_INFO ntag_model;
+    esp_err_t err = nfc->ntag2xx_get_model(&ntag_model);
+    if (err != ESP_OK)
+        return false;
+
+    while (page <= ntag_model.lastUserMemoryPage) {
+        uint8_t chunk[4] = {0, 0, 0, 0};
+        ByteArray chunkData(chunk, 4);
+
+        ESP_LOGD(TAG, "Sending chunk of sized 4: ");
+        ESP_LOG_BUFFER_HEX_LEVEL(TAG, chunk, 4, ESP_LOG_DEBUG);
+
+        if (!writePage(page, chunkData)) {
+            return false;
+        }
+        page++;
+    }
+    return true;
+}
+
 bool ConCatTag::writeTags(TagArray &tags){
     uint8_t page = tagStartPage;
     uint8_t *bytes = new uint8_t[1024];
@@ -434,7 +456,7 @@ bool ConCatTag::writeTags(TagArray &tags){
             }
         }
     }
-    ESP_LOGD(TAG, "Data to be  writen: ");
+    ESP_LOGD(TAG, "Data to be writen: ");
     ESP_LOG_BUFFER_HEX_LEVEL(TAG, bytes, writePos, ESP_LOG_DEBUG);
     uint16_t bytesWritten = 0;
     

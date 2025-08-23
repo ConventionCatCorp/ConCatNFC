@@ -80,8 +80,6 @@ returnData write_on_card(TagArray tagsNew, ConCatTag *tags, uint8_t expectedUUID
         }
     }
 
-
-
     if (!tags->writeTags(tagsNew)){
         ret.success = false;
         ret.message = (char*)"oh shit, failed to write :(";
@@ -89,6 +87,45 @@ returnData write_on_card(TagArray tagsNew, ConCatTag *tags, uint8_t expectedUUID
     }
     auto tagJson = tagsNew.toStruct().toJSON();
     ret.message = tagJson;
+    ret.success = true;
+    return ret;
+}
+
+returnData format_card(ConCatTag *tags, uint8_t expectedUUID[], uint8_t expectedUUIDLength, uint32_t *password) {
+    returnData ret;
+    memset(&ret, 0, sizeof(returnData));
+
+    uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
+    uint8_t uidLength;
+    esp_err_t err = get_uuid(tags->nfc, uid, &uidLength);
+    if (err != ESP_OK) {
+        ret.errorCode = err;
+        ret.success = false;
+        return ret;
+    }
+    if (expectedUUIDLength != uidLength || memcmp(expectedUUID, uid, uidLength) != 0) {
+        ret.success = false;
+        ret.message = (char*)"UUID mismatch";
+        return ret;
+    }
+    if (!is_valid_tag(tags)){
+        ret.success = false;
+        ret.message = (char*)"Only NXP NTAG21x supports password";
+        return ret;
+    }
+    if (password != NULL) {
+        ret.success = tags->unlockTag(*password);
+        if (!ret.success) {
+            ret.message = (char*)"Unlock failed";
+            return ret;
+        }
+    }
+    if (!tags->format()){
+        ret.success = false;
+        ret.message = (char*)"oh shit, failed to write :(";
+        return ret;
+    }
+    ret.message = "Success";
     ret.success = true;
     return ret;
 

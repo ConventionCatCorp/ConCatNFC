@@ -47,7 +47,7 @@ extern led_strip_handle_t g_led_strip;
 bool setup(void) {
     ESP_LOGI(TAG, "init PN532 in HSU mode");
 
-    PN532Interface *interface = new PN532InterfaceHSU(GPIO_NUM_19, GPIO_NUM_18, GPIO_NUM_NC, GPIO_NUM_NC, UART_NUM_1, 115200);
+    PN532Interface *interface = new PN532InterfaceHSU(GPIO_NUM_17, GPIO_NUM_18, GPIO_NUM_NC, GPIO_NUM_NC, UART_NUM_1, 115200);
     nfc = new PN532(interface);
 
     gpio_reset_pin(GPIO_NUM_5);

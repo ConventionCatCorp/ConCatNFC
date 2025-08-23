@@ -8,9 +8,9 @@
 #include "freertos/task.h"
 
 
-#define LED_STRIP_GPIO_PIN  2
+#define LED_STRIP_GPIO_PIN  8
 // Numbers of the LED in the strip
-#define LED_STRIP_LED_COUNT 24
+#define LED_STRIP_LED_COUNT 32
 
 #define MAX_BRIGHTNESS 0.25
 

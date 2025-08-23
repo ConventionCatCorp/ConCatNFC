@@ -151,6 +151,7 @@ struct NTAG2XX_INFO {
     uint8_t passwordPage;
     uint8_t configPage;
     uint8_t auth0Page;
+    uint8_t lastUserMemoryPage;
 };
 
 // Generic PN532 functions

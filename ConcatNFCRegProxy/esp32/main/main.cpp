@@ -276,6 +276,55 @@ static int reset(int argc, char **argv)
     return 0;
 }
 
+static int format(int argc, char **argv)
+{
+    uint32_t password;
+    returnData ret;
+
+    if (argc < 2) {
+        printf("{\"success\":false,\"error\":\"Not enough arguments\"}\n");
+        return 0;
+    }
+    if (strlen(argv[1]) != 14) {
+        printf("{\"success\":false,\"error\":\"Expected UUID length of 14\"}\n");
+        return 0;
+    }
+    uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
+    for (int i = 0; i < 7; i++) {
+        unsigned long ul;
+        char pByte[3];
+        memcpy(pByte, &argv[1][i * 2], 2);
+        pByte[2] = '\0';
+        ul = strtol(pByte, NULL, 16);
+        if (ul == ULONG_MAX || ul > 256) {
+            printf("{\"success\":false,\"error\":\"Invalid UUID\"}\n");
+            return 0;
+        }
+        uid[i] = ul;
+    }
+    ESP_LOGD(TAG, "Formatting card...");
+    if (argc == 3) {
+        password = strtoul(argv[2], nullptr, 10);
+        ESP_LOGD(TAG, "Password: %d", password);
+        ret = format_card(Tags, uid, 7, &password);
+    } else {
+        ret = format_card(Tags, uid, 7, NULL);
+    }
+    if (!ret.success) {
+        char buf[256];
+        if (!ret.message) {
+            sprintf(buf, "Error %d", ret.errorCode);
+        } else {
+            sprintf(buf, "%s", ret.message);
+        }
+        printf("{\"success\":false,\"error\":\"%s\"}\n", buf);
+        return 0;
+    }
+    printf("{\"success\":true,\"card\":%s}\n", ret.message);
+
+    return 0;
+}
+
 static int uuid(int argc, char **argv)
 {
     uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
@@ -897,6 +946,13 @@ static void register_nfc_scan(void)
             .func = &set_led_color,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&cmd13));
+    const esp_console_cmd_t cmd14 = {
+            .command = "format",
+            .help = "Formats the card (writes zeros to all user memory)",
+            .hint = NULL,
+            .func = &format,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd14));
 }
 
 

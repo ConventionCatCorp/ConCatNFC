@@ -127,6 +127,7 @@ public:
     uint8_status readByte();
     ByteArray readBytes(uint8_t length);
     TagArrayStatus readTags();
+    bool format();
     bool writeTags(TagArray &tags);
     bool writePage(uint8_t pageAddress, ByteArray data);
 

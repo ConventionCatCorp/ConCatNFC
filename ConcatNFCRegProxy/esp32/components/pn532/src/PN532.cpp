@@ -87,6 +87,29 @@ esp_err_t PN532::pn532_set_passive_activation_retries( uint8_t maxRetries) {
     return m_Interface->pn532_send_command_wait_ack(pn532_packetbuffer, 5, PN532_WRITE_TIMEOUT);
 }
 
+esp_err_t PN532::pn532_set_rf_field_strength( uint8_t fieldStrength) {
+    pn532_packetbuffer[0] = PN532_COMMAND_RFCONFIGURATION;
+    pn532_packetbuffer[1] = 0xA;    // Analog settings for 106 kbps type A (NTAG216 and others)
+    pn532_packetbuffer[2] = fieldStrength; // CIU_RFCfg
+    pn532_packetbuffer[3] = 0xf4; // CIU_GsNOn
+    pn532_packetbuffer[4] = 0x3f; // CIU_CWGsP
+    pn532_packetbuffer[5] = 0x11; // CIU_ModGsP
+    pn532_packetbuffer[6] = 0x4D; // CIU_Demod (when own RF on)
+    pn532_packetbuffer[7] = 0x85; // CIU_RxThreshold
+    pn532_packetbuffer[8] = 0x61; // CIU_Demod (own RF off)
+    pn532_packetbuffer[9] = 0x6f; // CIU_GsNOff
+    pn532_packetbuffer[10] = 0x26; // CIU_ModWidth
+    pn532_packetbuffer[11] = 0x62; // CIU_MifNFC
+    pn532_packetbuffer[12] = 0x87; // CIU_TxBitPhase
+
+
+#ifdef CONFIG_MIFAREDEBUG
+    ESP_LOGD(TAG, "pn532_set_rf_field_strength(): Setting fieldStrength to %d", fieldStrength);
+#endif
+
+    return m_Interface->pn532_send_command_wait_ack(pn532_packetbuffer, 13, PN532_WRITE_TIMEOUT);
+}
+
 esp_err_t PN532::pn532_auto_poll(
                           uint8_t baud_rate_and_card_type,
                           int32_t timeout,

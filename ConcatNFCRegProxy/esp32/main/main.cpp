@@ -276,6 +276,25 @@ static int reset(int argc, char **argv)
     return 0;
 }
 
+static int set_field_strength(int argc, char **argv) {
+    if (argc < 2) {
+        printf("{\"success\":false,\"error\":\"Not enough arguments\"}\n");
+        return 0;
+    }
+    uint8_t fieldStrength = strtol(argv[1], NULL, 10);
+    if (fieldStrength < 0 || fieldStrength > 255) {
+        printf("{\"success\":false,\"error\":\"Field strength should be between 0 and 255. Factory default is 89\"}\n");
+        return 0;
+    }
+    err = Tags->nfc->pn532_set_rf_field_strength(fieldStrength);
+    if (err != ESP_OK) {
+        printf("{\"success\":false,\"error\":\"error %d\"}\n", err);
+        return 0;
+    }
+    printf("{\"success\":true}\n");
+    return 0;
+}
+
 static int format(int argc, char **argv)
 {
     uint32_t password;
@@ -953,6 +972,14 @@ static void register_nfc_scan(void)
             .func = &format,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&cmd14));
+    const esp_console_cmd_t cmd15 = {
+            .command = "set_field_strength",
+            .help = "Sets the RF field strength. Factory default is 89. Range is 0-255.",
+            .hint = NULL,
+            .func = &set_field_strength,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd15));
+
 }
 
 

@@ -95,6 +95,7 @@
 
 // NTAG Commands
 #define NTAG_CMD_PWD_AUTH                   (0x1B)
+#define NTAG_CMD_GET_VERSION                (0x60)
 
 // Prefixes for NDEF Records (to identify record type)
 #define NDEF_URIPREFIX_NONE                 (0x00)
@@ -265,5 +266,6 @@ public:
 
     esp_err_t pn532_reset_card();
     esp_err_t pn532_deselect_card();
+    [[nodiscard]] esp_err_t pn532_set_rf_field_strength( uint8_t fieldStrength = 0x59) const;
 };
 #endif //CONCAT_NFC_PROXY_ESP32_PN532_H

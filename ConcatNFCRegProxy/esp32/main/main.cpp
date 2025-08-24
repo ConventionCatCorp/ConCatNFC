@@ -5,14 +5,12 @@
 #include <soc/gpio_num.h>
 #include <esp_log.h>
 #include "driver/spi_common.h"
-#include "esp_system.h"
 #include "esp_console.h"
 #include "esp_vfs_dev.h"
 #include "driver/uart.h"
 #include "linenoise/linenoise.h"
 #include "esp_log_level.h"
-
-
+#include "nvs_flash.h"
 
 #include "PN532.h"
 #include "PN532InterfaceHSU.h"
@@ -21,7 +19,6 @@
 #include <cJSON.h>
 #include "leds.h"
 #include "led_strip.h"
-#include "esp_log.h"
 #include "esp_err.h"
 
 #include "freertos/FreeRTOS.h"
@@ -34,10 +31,10 @@ static PN532 *nfc;
 static ConCatTag *Tags;
 esp_err_t err;
 
-
 TaskHandle_t my_task_handle = NULL;
+nvs_handle_t my_nvs_handle = 0;
 
-
+uint8_t rfFieldStrength = 0x59;
 
 extern LedState g_ledState;
 extern uint8_t g_r,g_g,g_b;
@@ -45,11 +42,34 @@ extern led_strip_handle_t g_led_strip;
 
 
 bool setup(void) {
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    if (ret != ESP_OK) {
+        printf("Failed to init NVS: %d", ret);
+    } else {
+        ret = nvs_open("concat_nfc", NVS_READWRITE, &my_nvs_handle);
+        if (ret != ESP_OK) {
+            printf("Failed to open NVS: %d", ret);
+        }
+        printf("NVS opened successfully\n");
+        err = nvs_get_u8(my_nvs_handle, "rfFieldStrength", &rfFieldStrength);
+        if (err != ESP_OK) {
+            err = nvs_set_u8(my_nvs_handle, "rfFieldStrength", rfFieldStrength);
+            if (err != ESP_OK) {
+                printf("Cannot set default RF field strength in NVS\n");
+            }
+        }
+        printf("Default RF field strength set to %d\n", rfFieldStrength);
+    }
+
     ESP_LOGI(TAG, "init PN532 in HSU mode");
 
     PN532Interface *interface = new PN532InterfaceHSU(GPIO_NUM_17, GPIO_NUM_18, GPIO_NUM_NC, GPIO_NUM_NC, UART_NUM_1, 115200);
     nfc = new PN532(interface);
-
+    
     gpio_reset_pin(GPIO_NUM_5);
     gpio_set_direction(GPIO_NUM_5, GPIO_MODE_OUTPUT);
 
@@ -65,6 +85,11 @@ bool setup(void) {
     } while(err != ESP_OK);
     Tags = new ConCatTag(nfc);
     printf("init_PN532_SPI success\n");
+
+    err = nfc->pn532_set_rf_field_strength(rfFieldStrength);
+    if (err != ESP_OK) {
+        printf("Failed to set RF field strength: %d\n", err);
+    }
 
     for (int i = 0; i < LED_STRIP_LED_COUNT; i++) {
         ESP_ERROR_CHECK(led_strip_set_pixel(g_led_strip, i, 5, 5, 5));
@@ -276,6 +301,56 @@ static int reset(int argc, char **argv)
     return 0;
 }
 
+static int set_field_strength(int argc, char **argv) {
+    if (argc < 2) {
+        printf("{\"success\":false,\"error\":\"Not enough arguments\"}\n");
+        return 0;
+    }
+    uint8_t fieldStrength = strtol(argv[1], NULL, 10);
+    if (fieldStrength < 0 || fieldStrength > 255) {
+        printf("{\"success\":false,\"error\":\"Field strength should be between 0 and 255. Factory default is 89\"}\n");
+        return 0;
+    }
+    err = Tags->nfc->pn532_set_rf_field_strength(fieldStrength);
+    if (err != ESP_OK) {
+        printf("{\"success\":false,\"error\":\"error %d\"}\n", err);
+        return 0;
+    }
+    rfFieldStrength = fieldStrength;
+    err = nvs_set_u8(my_nvs_handle, "rfFieldStrength", rfFieldStrength);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set RF field strength in NVS: %d", err);
+    }
+    printf("{\"success\":true}\n");
+    return 0;
+}
+
+static int calibrate_rf_field(int argc, char **argv) {
+    returnData ret;
+    ret = calibrate_rf_field(Tags, 89);
+    if (!ret.success) {
+        char buf[256];
+        if (!ret.message) {
+            sprintf(buf, "Error %d", ret.errorCode);
+        } else {
+            sprintf(buf, "%s", ret.message);
+        }
+        printf("{\"success\":false,\"error\":\"%s\"}\n", buf);
+        return 0;
+    }
+    rfFieldStrength = ret.u8_data;
+    err = nvs_set_u8(my_nvs_handle, "rfFieldStrength", rfFieldStrength);
+    if (err != ESP_OK) {
+        printf("{\"success\":false,\"error\":\"Got field strength of %d, but failed to store in NV storage: error %d\"}\n", rfFieldStrength, err);
+    } else {
+        printf("{\"success\":true,\"message\":%s}\n", ret.message);
+    }
+    if (ret.freeMessage) {
+        free(ret.message);
+    }
+    return 0;
+}
+
 static int format(int argc, char **argv)
 {
     uint32_t password;
@@ -321,6 +396,9 @@ static int format(int argc, char **argv)
         return 0;
     }
     printf("{\"success\":true,\"card\":%s}\n", ret.message);
+    if (ret.freeMessage) {
+        free(ret.message);
+    }
 
     return 0;
 }
@@ -470,6 +548,9 @@ static int read_tag(int argc, char **argv) {
         return 0;
     }
     printf("{\"success\":true,\"card\":%s}\n", ret.message);
+    if (ret.freeMessage) {
+        free(ret.message);
+    }
     def.Free();
     return 0;
 }
@@ -525,6 +606,9 @@ static int update_tags(int argc, char **argv) {
         printf("{\"success\":false,\"error\":\"%s\"}\n", buf);
         return 0;
     }
+    if (ret.freeMessage) {
+        free(ret.message);
+    }
 
     if (cJSON_HasObjectItem(root, "attendeeId")){
         def.attendee_id = cJSON_GetObjectItem(root, "attendeeId")->valueint;
@@ -564,7 +648,9 @@ static int update_tags(int argc, char **argv) {
         return 0;
     }
 
-
+    if (ret.freeMessage) {
+        free(ret.message);
+    }
     ret.message = def.toJSON();
     printf("{\"success\":true,\"card\":%s}\n", ret.message);
     def.Free();
@@ -827,6 +913,9 @@ static int write_tags(int argc, char **argv) {
     }
     
     printf("{\"success\":true,\"card\":%s}\n", ret.message);
+    if (ret.freeMessage) {
+        free(ret.message);
+    }
     return 0;
 }
 
@@ -953,6 +1042,20 @@ static void register_nfc_scan(void)
             .func = &format,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&cmd14));
+    const esp_console_cmd_t cmd15 = {
+            .command = "set_field_strength",
+            .help = "Sets the RF field strength. Factory default is 89. Range is 0-255.",
+            .hint = NULL,
+            .func = &set_field_strength,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd15));
+    const esp_console_cmd_t cmd16 = {
+            .command = "calibrate_rf_field",
+            .help = "Automatically calibrates the RF field by doping 100 reads at varying field strengths",
+            .hint = NULL,
+            .func = &calibrate_rf_field,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd16));
 }
 
 

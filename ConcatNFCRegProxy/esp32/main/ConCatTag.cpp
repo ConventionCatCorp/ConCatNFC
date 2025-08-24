@@ -292,6 +292,7 @@ ConCatTag::ConCatTag(PN532 *i_nfc) {
 
 bool ConCatTag::IsTagModelValid(){
     NTAG2XX_INFO ntag_model;
+
     esp_err_t err = nfc->ntag2xx_get_model(&ntag_model);
     if (err != ESP_OK)
         return false;

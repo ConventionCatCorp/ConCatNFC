@@ -2,7 +2,6 @@
 #include "ConCatTag.h"
 #include <esp_log.h>
 
-
 #define TAG "main"
 
 
@@ -88,6 +87,7 @@ returnData write_on_card(TagArray tagsNew, ConCatTag *tags, uint8_t expectedUUID
     auto tagJson = tagsNew.toStruct().toJSON();
     ret.message = tagJson;
     ret.success = true;
+    ret.freeMessage = true;
     return ret;
 }
 
@@ -128,7 +128,77 @@ returnData format_card(ConCatTag *tags, uint8_t expectedUUID[], uint8_t expected
     ret.message = "Success";
     ret.success = true;
     return ret;
+}
 
+returnData calibrate_rf_field(ConCatTag *tags, uint8_t startingFileStrength) {
+    returnData ret;
+    memset(&ret, 0, sizeof(returnData));
+
+    uint8_t data[16];
+
+    //tags->nfc->ntag2xx_read_page(0, data, 16);
+
+    uint8_t currentStrength = startingFileStrength;
+
+    ESP_LOGI(TAG, "Calibrating: Setting initial field strength to: %d", currentStrength);
+
+    esp_err_t err = tags->nfc->pn532_set_rf_field_strength(currentStrength);
+    if (err != ESP_OK) {
+        ret.message = "Failed to set RF field strength";
+        ret.success = false;
+        return ret;
+    }
+    uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };  // Buffer to store the returned UID
+    uint8_t uidLength;
+
+    // Delay to let field adjust
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+
+    for (;;) {
+        bool restart = false;
+        for (int i = 0; i < 500; i++) {
+            err = ESP_OK;
+            if (i == 0) {
+                err = get_uuid(tags->nfc, uid, &uidLength, 200);
+            }
+            if (err == ESP_OK) {
+                ESP_LOGD(TAG, "Reading page 0 iteration: %d", i);
+                err = tags->nfc->ntag2xx_read_page(0, data, 16);
+            }
+            if (err != ESP_OK) {
+                currentStrength -= 5;
+                ESP_LOGI(TAG, "Failed to read - decreasing to: %d", currentStrength);
+                if (currentStrength < 10) {
+                    ret.message = "Failed to calibrate RF field strength";
+                    ret.success = false;
+                    return ret;
+                }
+                err = tags->nfc->pn532_set_rf_field_strength(currentStrength);
+                if (err != ESP_OK) {
+                    ret.message = "Failed to set RF field strength";
+                    ret.success = false;
+                    return ret;
+                }
+                // Delay to let field adjust
+                vTaskDelay(100 / portTICK_PERIOD_MS);
+                restart = true;
+                break;
+            }
+            ESP_LOGD(TAG, "Reading page 0 done");
+        }
+        if (!restart) {
+            break;
+        }
+    }
+
+    char *message = (char *) malloc(64);
+
+    sprintf(message, "Success - Calibrated strength = %d", currentStrength);
+    ret.message = message;
+    ret.success = true;
+    ret.freeMessage = true;
+    ret.u8_data = currentStrength;
+    return ret;
 }
 
 returnData read_tag_data(CardDefinition &tagsRead, ConCatTag *tags, uint8_t expectedUUID[], uint8_t expectedUUIDLength, uint32_t *password) {
@@ -172,5 +242,6 @@ returnData read_tag_data(CardDefinition &tagsRead, ConCatTag *tags, uint8_t expe
     auto tagJson = tagsRead.toJSON();
     ret.message = tagJson;
     ret.success = true;
+    ret.freeMessage = true;
     return ret;
 }

@@ -316,6 +316,11 @@ static int set_field_strength(int argc, char **argv) {
         printf("{\"success\":false,\"error\":\"error %d\"}\n", err);
         return 0;
     }
+    rfFieldStrength = fieldStrength;
+    err = nvs_set_u8(my_nvs_handle, "rfFieldStrength", rfFieldStrength);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set RF field strength in NVS: %d", err);
+    }
     printf("{\"success\":true}\n");
     return 0;
 }

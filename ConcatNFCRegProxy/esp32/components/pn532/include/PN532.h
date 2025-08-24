@@ -266,6 +266,6 @@ public:
 
     esp_err_t pn532_reset_card();
     esp_err_t pn532_deselect_card();
-    esp_err_t pn532_set_rf_field_strength( uint8_t fieldStrength = 0x59);
+    [[nodiscard]] esp_err_t pn532_set_rf_field_strength( uint8_t fieldStrength = 0x59) const;
 };
 #endif //CONCAT_NFC_PROXY_ESP32_PN532_H

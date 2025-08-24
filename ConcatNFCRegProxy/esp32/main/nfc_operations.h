@@ -9,6 +9,8 @@ struct returnData {
     bool success;
     esp_err_t errorCode;
     char *message;
+    uint8_t u8_data;
+    bool freeMessage;
 };
 
 esp_err_t set_nfc_password(PN532 *nfc, uint32_t pwd);
@@ -18,5 +20,6 @@ bool is_valid_tag(ConCatTag *tags);
 esp_err_t get_uuid(PN532 *nfc, uint8_t *uuid, uint8_t *uidLength, int32_t timeoutMs=-1);
 returnData read_tag_data(CardDefinition &tagsRead, ConCatTag *tags, uint8_t expectedUUID[], uint8_t expectedUUIDLength, uint32_t *password);
 returnData format_card(ConCatTag *tags, uint8_t expectedUUID[], uint8_t expectedUUIDLength, uint32_t *password);
+returnData calibrate_rf_field(ConCatTag *tags, uint8_t startingFileStrength = 0x59);
 
 #endif

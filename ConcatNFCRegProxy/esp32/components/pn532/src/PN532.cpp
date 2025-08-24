@@ -87,7 +87,7 @@ esp_err_t PN532::pn532_set_passive_activation_retries( uint8_t maxRetries) {
     return m_Interface->pn532_send_command_wait_ack(pn532_packetbuffer, 5, PN532_WRITE_TIMEOUT);
 }
 
-esp_err_t PN532::pn532_set_rf_field_strength( uint8_t fieldStrength) {
+esp_err_t PN532::pn532_set_rf_field_strength( uint8_t fieldStrength) const {
     pn532_packetbuffer[0] = PN532_COMMAND_RFCONFIGURATION;
     pn532_packetbuffer[1] = 0xA;    // Analog settings for 106 kbps type A (NTAG216 and others)
     pn532_packetbuffer[2] = fieldStrength; // CIU_RFCfg

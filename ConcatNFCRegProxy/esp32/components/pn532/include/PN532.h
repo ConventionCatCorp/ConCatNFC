@@ -95,6 +95,7 @@
 
 // NTAG Commands
 #define NTAG_CMD_PWD_AUTH                   (0x1B)
+#define NTAG_CMD_GET_VERSION                (0x60)
 
 // Prefixes for NDEF Records (to identify record type)
 #define NDEF_URIPREFIX_NONE                 (0x00)

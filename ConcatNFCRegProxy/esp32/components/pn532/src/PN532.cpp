@@ -408,43 +408,71 @@ esp_err_t PN532::ntag2xx_get_model( NTAG2XX_INFO *model)
 
     model->model = NTAG2XX_UNKNOWN;
 
-    uint8_t page_mem[16];
-    esp_err_t err = ntag2xx_read_page(0, page_mem, sizeof(page_mem));
-    if (err != ESP_OK)
+    pn532_packetbuffer[0] = PN532_COMMAND_INCOMMUNICATETHRU;
+    pn532_packetbuffer[1] = NTAG_CMD_GET_VERSION;
+
+    esp_err_t err = m_Interface->pn532_send_command_wait_ack(pn532_packetbuffer, 2, PN532_WRITE_TIMEOUT);
+
+    if (err != ESP_OK) {
         return err;
+    }
+    ESP_LOGI(TAG, "Reading version response");
 
-    int raw_capacity = page_mem[14] * 8;
-    ESP_LOGD(TAG, "raw capacity: %d bytes", raw_capacity);
+    uint8_t response[16];
+    err = m_Interface->pn532_read_data(response, 16, PN532_READ_TIMEOUT);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read response: 0x%02x", err);
+        return err;
+    }
+    if (response[5] != 0xd5 || response[6] != 0x43) {
+        ESP_LOGE(TAG, "Unexpected response: 0x%02x 0x%02x", response[5], response[6]);
+        return ESP_FAIL;
+    }
+    switch (response[9]) {
+        case 0x04:
+            // NXP Semiconductor
+            break;
+        default:
+            ESP_LOGE(TAG, "Unknown manufacturer: 0x%02x", response[9]);
+            model->model = NTAG2XX_UNKNOWN;
+            return ESP_OK;
 
-    switch (page_mem[14]) {
-        case 0x12:
+    }
+    if (response[10] != 0x04 || response[11] != 0x02 || response[12] != 0x01 || response[13] != 0x00) {
+        ESP_LOGE(TAG, "Unexpected type/subtype/maj version/min version: 0x%02x 0x%02x 0x%02x", response[10], response[11], response[12]);
+        model->model = NTAG2XX_UNKNOWN;
+        return ESP_OK;
+    }
+
+    switch (response[14]) {
+        case 0x0f:
+            ESP_LOGI(TAG, "NTAG213 detected");
             model->model = NTAG2XX_NTAG213;
             model->passwordPage = 0x2B;
             model->configPage = 0x29;
             model->auth0Page = 0x2A;
             model->lastUserMemoryPage = 0x27;
             break;
-
-        case 0x3e:
+        case 0x11:
+            ESP_LOGI(TAG, "NTAG215 detected");
             model->model = NTAG2XX_NTAG215;
             model->passwordPage = 0x85;
             model->configPage = 0x83;
             model->auth0Page = 0x84;
             model->lastUserMemoryPage = 0x81;
             break;
-
-        case 0x6d:
+        case 0x13:
+            ESP_LOGI(TAG, "NTAG216 detected");
             model->model = NTAG2XX_NTAG216;
             model->passwordPage = 0xE5;
             model->configPage = 0xE3;
             model->auth0Page = 0xE4;
             model->lastUserMemoryPage = 0xE1;
             break;
-
         default:
             model->model = NTAG2XX_UNKNOWN;
+            return ESP_OK;
     }
-
     return ESP_OK;
 }
 

@@ -2,6 +2,7 @@ package app.concat.nfcvalidator
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.media.SoundPool
 import android.nfc.NdefMessage
 import android.nfc.NfcAdapter
 import android.nfc.Tag
@@ -9,6 +10,7 @@ import android.nfc.tech.MifareUltralight
 import android.os.Build
 import android.os.Bundle
 import android.os.Looper
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -53,6 +55,13 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     private lateinit var mNfcAdapter: NfcAdapter
     private lateinit var pendingIntent: PendingIntent
     private lateinit var nfc: NFC;
+
+    private lateinit var soundPool: SoundPool;
+    private var startId: Int = 0;
+    private var successId: Int = 0;
+    private var failId: Int = 0;
+
+
     private val validationState = mutableStateOf<Boolean?>(null)
     private val waitCardState = mutableStateOf<Boolean?>(null)
     private val isLoggedIn = mutableStateOf(false)
@@ -95,6 +104,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                                             // Reset validation states
                                             validationState.value = null
                                             waitCardState.value = null
+                                            Log.d("NFC", "NFC Adapter disabled")
                                             mNfcAdapter.disableReaderMode(this@MainActivity)
                                             mNfcAdapter.disableForegroundDispatch(this@MainActivity)
                                         }
@@ -136,7 +146,12 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                 LoginScreen(
                     onLoginSuccess = {
                         isLoggedIn.value = true
-                        mNfcAdapter.enableReaderMode(this, this, NfcAdapter.FLAG_READER_NFC_A, null)
+                        Log.d("NFC", "NFC Adapter enabled")
+                        mNfcAdapter.enableReaderMode(this, this,
+                            NfcAdapter.FLAG_READER_NFC_A or
+                            NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK or
+                            NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS
+                            , null)
                         mNfcAdapter.enableForegroundDispatch(this, pendingIntent, null, null)
                         onLoginSuccess()
                     }
@@ -167,8 +182,10 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             updateLoginState()
         }
 
-        //mNfcAdapter.disableReaderMode(this)
-        //mNfcAdapter.disableForegroundDispatch(this)
+        soundPool = SoundPool.Builder().setMaxStreams(3).build()
+        startId = soundPool.load(this, R.raw.processing, 1)
+        successId = soundPool.load(this, R.raw.input_ok_4, 1)
+        failId = soundPool.load(this, R.raw.denybeep1, 1)
 
         enableEdgeToEdge()
         setContent {
@@ -188,6 +205,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         if (Looper.myLooper() == null) {
             Looper.prepare()
         }
+        Log.d("NFC", "Tag discovered: ${tag.id.joinToString("") { "%02x".format(it)}}")
+        soundPool.play(startId, 1f, 1f, 0, 0, 1f)
         if (tag.techList.contains("android.nfc.tech.MifareUltralight")) {
 
             showPleaseNoRemoveCard()
@@ -205,10 +224,14 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             } catch (e: APIError) {
                 if (e.responseCode == 404) {
                     showValidationResult(false)
+                    soundPool.play(failId, 1f, 1f, 0, 0, 1f)
+                    Log.i("NFC", "Tag not registered with this convention.")
                     Toast.makeText(this, "This tag is not registered with this convention.", Toast.LENGTH_LONG).show()
                     return
                 }
                 showValidationResult(false)
+                soundPool.play(failId, 1f, 1f, 0, 0, 1f)
+                Log.d("NFC", "API Error: ${e.message}")
                 Toast.makeText(this, e.message, Toast.LENGTH_LONG).show()
                 return
             }
@@ -218,6 +241,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             if (locked) {
                 if (!nfc.unlockTag(password)) {
                     showValidationResult(false)
+                    soundPool.play(failId, 1f, 1f, 0, 0, 1f)
+                    Log.d("NFC", "Cannot unlock tag.")
                     Toast.makeText(this, "Cannot unlock tag.", Toast.LENGTH_LONG).show()
                     return
                 }
@@ -225,6 +250,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             locked = nfc.checkIfLocked()
             if (locked) {
                 showValidationResult(false)
+                soundPool.play(failId, 1f, 1f, 0, 0, 1f)
+                Log.d("NFC", "Tag is still locked.")
                 Toast.makeText(this, "Tag is still locked.", Toast.LENGTH_LONG).show()
                 return
             }
@@ -234,6 +261,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             val signatureTag = tags.getTag(TagId.SIGNATURE)
             if (signatureTag == null) {
                 showValidationResult(false)
+                soundPool.play(failId, 1f, 1f, 0, 0, 1f)
+                Log.d("NFC", "Signature tag not found.")
                 Toast.makeText(this, "Signature tag not found", Toast.LENGTH_LONG).show()
                 return
             }
@@ -243,6 +272,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                 nfcPublicKey = getNFCPublicKey()
             } catch (e: APIError) {
                 showValidationResult(false)
+                soundPool.play(failId, 1f, 1f, 0, 0, 1f)
+                Log.d("NFC", "API Error: ${e.message}")
                 Toast.makeText(this, e.message, Toast.LENGTH_LONG).show()
                 return
             }
@@ -264,6 +295,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             }
             sortedJSONString = sortedJSONString.dropLast(1)
             sortedJSONString += "}"
+
+            Log.d("NFC", "Sorted JSON String: $sortedJSONString")
 
             val algorithmParameters = AlgorithmParameters.getInstance("EC")
             val curveName = when (nfcPublicKey.crv) {
@@ -295,6 +328,11 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             val isValid = signatureValidator.verify(signatureBytes)
 
             showValidationResult(isValid)
+            if (isValid) {
+                soundPool.play(successId, 1f, 1f, 0, 0, 1f)
+            } else {
+                soundPool.play(failId, 1f, 1f, 0, 0, 1f)
+            }
         }
     }
 
@@ -373,6 +411,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
 
     override fun onPause() {
         super.onPause()
+        Log.d("NFC", "NFC Adapter disabled")
         mNfcAdapter.disableReaderMode(this)
         mNfcAdapter.disableForegroundDispatch(this)
     }
@@ -381,7 +420,10 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         super.onResume()
         // No need to update login state - it's already persisted
         if (isLoggedIn.value) {
-            mNfcAdapter.enableReaderMode(this, this, NfcAdapter.FLAG_READER_NFC_A, null)
+            Log.d("NFC", "NFC Adapter enabled")
+            mNfcAdapter.enableReaderMode(this, this, NfcAdapter.FLAG_READER_NFC_A or
+                    NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK or
+                    NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS, null)
             mNfcAdapter.enableForegroundDispatch(this, pendingIntent, null, null)
         }
     }

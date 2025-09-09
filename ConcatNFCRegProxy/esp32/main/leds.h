@@ -1,5 +1,7 @@
 #pragma once
 
+#include "config.h"
+
 #include "led_strip.h"
 #include "esp_log.h"
 #include "esp_err.h"
@@ -8,18 +10,12 @@
 #include "freertos/task.h"
 
 
-#define LED_STRIP_GPIO_PIN  8
-// Numbers of the LED in the strip
-#define LED_STRIP_LED_COUNT 32
-
-#define MAX_BRIGHTNESS 0.25
-
 enum LedState {
     LED_STATE_STATIC_COLOR,
     LED_STATE_RAINBOW,
     LED_STATE_ALTERNATING,
     LED_STATE_PULSATING,
-    
+
 };
 
 

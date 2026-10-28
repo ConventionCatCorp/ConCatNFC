@@ -6,7 +6,8 @@ data class LoginRequest(
     var secondFactor: SecondFactor? = null
 )
 
+// Server requires exactly one of otpCode or backupCode; Gson omits the null one
 data class SecondFactor(
-    val code: String,
-    val type: String = "otp"
+    val otpCode: String? = null,
+    val backupCode: String? = null
 )

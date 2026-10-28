@@ -127,7 +127,7 @@ class LoginViewModel : ViewModel() {
 
                 // Add second factor if provided
                 secondFactorCode?.let { code ->
-                    loginRequest.secondFactor = SecondFactor(code)
+                    loginRequest.secondFactor = SecondFactor(otpCode = code)
                 }
                 
                 // Perform login with CSRF token in headers

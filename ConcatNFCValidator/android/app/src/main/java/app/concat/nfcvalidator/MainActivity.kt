@@ -52,7 +52,8 @@ import java.util.Base64
 import java.math.BigInteger
 
 class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
-    private lateinit var mNfcAdapter: NfcAdapter
+    // Null on devices without NFC hardware
+    private var mNfcAdapter: NfcAdapter? = null
     private lateinit var pendingIntent: PendingIntent
     private lateinit var nfc: NFC;
 
@@ -105,8 +106,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                                             validationState.value = null
                                             waitCardState.value = null
                                             Log.d("NFC", "NFC Adapter disabled")
-                                            mNfcAdapter.disableReaderMode(this@MainActivity)
-                                            mNfcAdapter.disableForegroundDispatch(this@MainActivity)
+                                            mNfcAdapter?.disableReaderMode(this@MainActivity)
+                                            mNfcAdapter?.disableForegroundDispatch(this@MainActivity)
                                         }
                                     },
                                     colors = ButtonDefaults.buttonColors(
@@ -147,12 +148,12 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                     onLoginSuccess = {
                         isLoggedIn.value = true
                         Log.d("NFC", "NFC Adapter enabled")
-                        mNfcAdapter.enableReaderMode(this, this,
+                        mNfcAdapter?.enableReaderMode(this, this,
                             NfcAdapter.FLAG_READER_NFC_A or
                             NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK or
                             NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS
                             , null)
-                        mNfcAdapter.enableForegroundDispatch(this, pendingIntent, null, null)
+                        mNfcAdapter?.enableForegroundDispatch(this, pendingIntent, null, null)
                         onLoginSuccess()
                     }
                 )
@@ -171,7 +172,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
 
         mNfcAdapter = NfcAdapter.getDefaultAdapter(this)
 
-        if (!mNfcAdapter.isEnabled) {
+        if (mNfcAdapter?.isEnabled == false) {
             Toast.makeText(this, "NFC Not enabled.", Toast.LENGTH_LONG).show()
         }
 
@@ -190,7 +191,11 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         enableEdgeToEdge()
         setContent {
             ConcatNFCTheme {
-                MainContent()
+                if (mNfcAdapter == null) {
+                    NfcNotSupported()
+                } else {
+                    MainContent()
+                }
             }
         }
     }
@@ -412,8 +417,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     override fun onPause() {
         super.onPause()
         Log.d("NFC", "NFC Adapter disabled")
-        mNfcAdapter.disableReaderMode(this)
-        mNfcAdapter.disableForegroundDispatch(this)
+        mNfcAdapter?.disableReaderMode(this)
+        mNfcAdapter?.disableForegroundDispatch(this)
     }
 
     override fun onResume() {
@@ -421,10 +426,10 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         // No need to update login state - it's already persisted
         if (isLoggedIn.value) {
             Log.d("NFC", "NFC Adapter enabled")
-            mNfcAdapter.enableReaderMode(this, this, NfcAdapter.FLAG_READER_NFC_A or
+            mNfcAdapter?.enableReaderMode(this, this, NfcAdapter.FLAG_READER_NFC_A or
                     NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK or
                     NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS, null)
-            mNfcAdapter.enableForegroundDispatch(this, pendingIntent, null, null)
+            mNfcAdapter?.enableForegroundDispatch(this, pendingIntent, null, null)
         }
     }
 }
@@ -504,6 +509,47 @@ fun PleaseWaitCardRead() {
             )
         }
 
+}
+
+@Composable
+fun NfcNotSupported() {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Error,
+                contentDescription = "NFC not supported",
+                tint = Color.Red,
+                modifier = Modifier.size(128.dp)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "NFC not supported",
+                style = MaterialTheme.typography.headlineMedium
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "This device does not have NFC hardware, so it can't be used to validate badges.",
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun NfcNotSupportedPreview() {
+    ConcatNFCTheme {
+        NfcNotSupported()
+    }
 }
 
 @Preview(showBackground = true)

@@ -84,7 +84,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     fun MainContent(onLoginSuccess: () -> Unit = {}) {
         val context = LocalContext.current
         val coroutineScope = rememberCoroutineScope()
-        
+        var showLogoutDialog by rememberSaveable { mutableStateOf(false) }
+
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
@@ -96,20 +97,10 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                     topBar = {
                         TopAppBar(
                             title = { Text("ConCat NFC Validator") },
-                            actions = {
+                            navigationIcon = {
                                 Button(
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            ApiClient.logout(context)
-                                            isLoggedIn.value = false
-                                            // Reset validation states
-                                            validationState.value = null
-                                            waitCardState.value = null
-                                            Log.d("NFC", "NFC Adapter disabled")
-                                            mNfcAdapter?.disableReaderMode(this@MainActivity)
-                                            mNfcAdapter?.disableForegroundDispatch(this@MainActivity)
-                                        }
-                                    },
+                                    onClick = { showLogoutDialog = true },
+                                    modifier = Modifier.padding(start = 8.dp, end = 8.dp),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = MaterialTheme.colorScheme.error
                                     )
@@ -120,6 +111,37 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                         )
                     }
                 ) { innerPadding ->
+                    if (showLogoutDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showLogoutDialog = false },
+                            title = { Text("Log out?") },
+                            text = { Text("Are you sure you want to log out?") },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        showLogoutDialog = false
+                                        coroutineScope.launch {
+                                            ApiClient.logout(context)
+                                            isLoggedIn.value = false
+                                            // Reset validation states
+                                            validationState.value = null
+                                            waitCardState.value = null
+                                            Log.d("NFC", "NFC Adapter disabled")
+                                            mNfcAdapter?.disableReaderMode(this@MainActivity)
+                                            mNfcAdapter?.disableForegroundDispatch(this@MainActivity)
+                                        }
+                                    }
+                                ) {
+                                    Text("Log out", color = MaterialTheme.colorScheme.error)
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showLogoutDialog = false }) {
+                                    Text("Cancel")
+                                }
+                            }
+                        )
+                    }
                     Column(
                         modifier = Modifier
                             .padding(innerPadding)

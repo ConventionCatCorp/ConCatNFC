@@ -1,5 +1,6 @@
 package app.concat.nfcvalidator
 
+import android.nfc.TagLostException
 import android.nfc.tech.MifareUltralight
 import android.util.SparseArray
 import java.nio.ByteBuffer
@@ -230,6 +231,9 @@ class NFC constructor(val mifare: MifareUltralight) {
                 )
             )
             true
+        } catch (e: TagLostException) {
+            // Card removed, not a wrong password; let the caller report it as such
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -243,6 +247,8 @@ class NFC constructor(val mifare: MifareUltralight) {
                     0x10.toByte() // page address
                 )
             )
+        } catch (e: TagLostException) {
+            throw e
         } catch (e: Exception) {
             return true
         }

@@ -195,6 +195,14 @@ class LoginViewModel : ViewModel() {
     fun dismissError() {
         uiState = uiState.copy(error = null)
     }
+
+    // Called when the server rejects the session and silent re-login failed
+    fun showSessionExpired() {
+        uiState = uiState.copy(
+            isLoading = false,
+            error = "Your session has expired. Please log in again."
+        )
+    }
     
     fun updateSecondFactorCode(code: String) {
         uiState = uiState.copy(secondFactorCode = code)

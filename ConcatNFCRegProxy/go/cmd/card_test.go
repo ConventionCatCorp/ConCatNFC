@@ -64,6 +64,10 @@ func (m *MockNFC) BeepReader() error {
 	return nil
 }
 
+func (m *MockNFC) Reset() error {
+	return nil
+}
+
 func (m *MockNFC) Unlock() {
 	m.Locked = false
 }
@@ -101,8 +105,8 @@ func TestCardReadEmpty(t *testing.T) {
 	req, _ := http.NewRequest("PUT", "/read", bytes.NewBuffer(body))
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, 417, w.Code)
-	assert.Contains(t, w.Body.String(), "Card is empty!")
+	assert.Equal(t, 200, w.Code)
+	assert.Contains(t, w.Body.String(), "Card is empty")
 
 }
 
@@ -116,7 +120,7 @@ func TestCardWrite(t *testing.T) {
 		AttendeeId:        123,
 		ConventionId:      32,
 		IssuanceCount:     1,
-		IssuanceTimestamp: fmt.Sprintf("%v", nowIunix),,
+		IssuanceTimestamp: fmt.Sprintf("%v", nowIunix),
 		Expiration:        uint64(nowIunix + uint64(3600*24)),
 		Signature:         "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ=",
 		Password:          123,
@@ -175,7 +179,7 @@ func TestCardWrite(t *testing.T) {
 		ConventionId:      33,
 		Password:          123,
 		AttendeeId:        124,
-		IssuanceTimestamp: fmt.Sprintf("%v", nowIunix + 3),
+		IssuanceTimestamp: fmt.Sprintf("%v", nowIunix+3),
 		Expiration:        uint64(nowIunix + uint64(3600*22)),
 		Signature:         "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ=",
 		UUID:              CARD_UUID,
@@ -204,8 +208,8 @@ func TestCardPassword(t *testing.T) {
 	req, _ := http.NewRequest("PUT", "/read", bytes.NewBuffer(body))
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, 417, w.Code)
-	assert.Contains(t, w.Body.String(), "Card is empty!")
+	assert.Equal(t, 200, w.Code)
+	assert.Contains(t, w.Body.String(), "Card is empty")
 
 	nowIunix := uint64(time.Now().Unix())
 

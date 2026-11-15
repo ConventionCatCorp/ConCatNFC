@@ -294,7 +294,7 @@ func (env *NFCEnvoriment) transmitAndValidate(card *scard.Card, message []byte) 
 		return false, nil, fmt.Errorf("card not ready")
 	}
 	if card == nil {
-		return false, nil, fmt.Errorf(env.cardStatus)
+		return false, nil, errors.New(env.cardStatus)
 	}
 	rsp, err := card.Transmit(message)
 	if err != nil {
@@ -404,7 +404,7 @@ func (env *NFCEnvoriment) connectAndValidateCard(index int) (*scard.Card, error)
 		}
 		if version[0] != 0x0 {
 			finalError = fmt.Errorf("Vendor command failed with error code %x\n", version[0])
-			fmt.Printf(finalError.Error())
+			fmt.Print(finalError.Error())
 			card.Disconnect(scard.ResetCard)
 			time.Sleep(200 * time.Millisecond)
 			continue
@@ -417,7 +417,7 @@ func (env *NFCEnvoriment) connectAndValidateCard(index int) (*scard.Card, error)
 		if len(version) < 9 {
 			card.Disconnect(scard.ResetCard)
 			finalError = fmt.Errorf("Got short response from GET_VERISON")
-			fmt.Printf(finalError.Error())
+			fmt.Print(finalError.Error())
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}

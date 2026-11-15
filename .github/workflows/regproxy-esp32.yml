@@ -1,0 +1,58 @@
+name: RegProxy (ESP32)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ConcatNFCRegProxy/esp32/**"
+      - ".github/workflows/regproxy-esp32.yml"
+  pull_request:
+    paths:
+      - "ConcatNFCRegProxy/esp32/**"
+      - ".github/workflows/regproxy-esp32.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build firmware
+    runs-on: ubuntu-latest
+    # Must match the ESP-IDF version in sdkconfig / dependencies.lock.
+    container: espressif/idf:v5.5
+    defaults:
+      run:
+        shell: bash
+        working-directory: ConcatNFCRegProxy/esp32
+    steps:
+      - uses: actions/checkout@v7
+
+      # Plain `idf.py build` uses the committed sdkconfig (target esp32s3).
+      # Do not run `idf.py set-target`: it regenerates sdkconfig from defaults.
+      - name: Build
+        run: |
+          . "$IDF_PATH/export.sh"
+          idf.py build
+
+      # dependencies.lock is excluded: the component manager re-wraps YAML
+      # differently across versions without semantic change.
+      - name: Fail if build rewrote sdkconfig
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git diff --exit-code -- sdkconfig
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: esp32-firmware
+          path: |
+            ConcatNFCRegProxy/esp32/build/*.bin
+            ConcatNFCRegProxy/esp32/build/*.elf
+            ConcatNFCRegProxy/esp32/build/bootloader/bootloader.bin
+            ConcatNFCRegProxy/esp32/build/partition_table/partition-table.bin
+            ConcatNFCRegProxy/esp32/build/flasher_args.json
+          retention-days: 14

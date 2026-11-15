@@ -1,0 +1,88 @@
+name: RegProxy (Go)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ConcatNFCRegProxy/go/**"
+      - ".github/workflows/regproxy-go.yml"
+  pull_request:
+    paths:
+      - "ConcatNFCRegProxy/go/**"
+      - ".github/workflows/regproxy-go.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: ConcatNFCRegProxy/go
+
+jobs:
+  test:
+    name: Lint & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ConcatNFCRegProxy/go/go.mod
+          cache-dependency-path: ConcatNFCRegProxy/go/go.sum
+
+      - name: Install PC/SC headers
+        run: sudo apt-get update && sudo apt-get install -y libpcsclite-dev
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::Files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test -race -coverprofile=coverage.out ./...
+
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ConcatNFCRegProxy/go/go.mod
+          cache-dependency-path: ConcatNFCRegProxy/go/go.sum
+
+      - name: Install PC/SC headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libpcsclite-dev
+
+      - name: go build
+        shell: bash
+        run: go build -o dist/ConcatNFCRegProxy$([ "$RUNNER_OS" = Windows ] && echo .exe) ./cmd
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ConcatNFCRegProxy-${{ runner.os }}
+          path: ConcatNFCRegProxy/go/dist/
+          retention-days: 14
